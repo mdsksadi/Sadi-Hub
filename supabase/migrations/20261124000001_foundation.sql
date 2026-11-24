@@ -224,3 +224,78 @@ create trigger profiles_audit
   after insert or update or delete on public.profiles
   for each row execute function public.audit_mutation();
 
+-- ---------------------------------------------------------------------------
+-- Row level security
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles enable row level security;
+alter table public.user_settings enable row level security;
+alter table public.audit_logs enable row level security;
+alter table public.currencies enable row level security;
+alter table public.exchange_rates enable row level security;
+
+create policy profiles_owner_all on public.profiles
+  for all to authenticated
+  using (id = (select auth.uid()) and public.is_owner())
+  with check (id = (select auth.uid()) and public.is_owner());
+
+create policy user_settings_owner_all on public.user_settings
+  for all to authenticated
+  using (user_id = (select auth.uid()) and public.is_owner())
+  with check (user_id = (select auth.uid()) and public.is_owner());
+
+create policy audit_logs_owner_read on public.audit_logs
+  for select to authenticated
+  using (public.is_owner());
+
+create policy currencies_public_read on public.currencies
+  for select to anon, authenticated
+  using (is_active);
+
+create policy currencies_owner_all on public.currencies
+  for all to authenticated
+  using (public.is_owner())
+  with check (public.is_owner());
+
+-- Exchange rates are immutable once recorded so historical translations stay stable.
+create policy exchange_rates_owner_read on public.exchange_rates
+  for select to authenticated
+  using (public.is_owner());
+create policy exchange_rates_owner_insert on public.exchange_rates
+  for insert to authenticated
+  with check (public.is_owner());
+
+-- Public pages must not read profile.email or the private resume storage path.
+-- avatar_path points into the public portfolio bucket and is intentionally visible.
+-- Default (definer) view ownership intentionally bypasses profiles RLS.
+create or replace view public.public_profiles_v with (security_barrier = true) as
+select
+  p.id,
+  p.display_name,
+  p.headline,
+  p.bio_md,
+  p.location,
+  p.avatar_path,
+  p.resume_updated_at,
+  p.timezone,
+  p.created_at,
+  p.updated_at
+from public.profiles p
+where p.status = 'active' and p.role = 'owner';
+
+revoke all on public.public_profiles_v from public;
+grant select on public.public_profiles_v to anon, authenticated;
+
+revoke all on public.audit_logs, public.profiles, public.user_settings,
+  public.exchange_rates from anon;
+revoke update, delete on public.audit_logs from authenticated;
+revoke update, delete on public.exchange_rates from anon, authenticated;
+revoke insert, update, delete on public.currencies from anon;
+
+-- Explicit grants keep public reads working even when default table exposure is disabled.
+grant select on public.audit_logs to authenticated;
+grant select on public.currencies to anon;
+grant select, insert on public.exchange_rates to authenticated;
+grant select on public.currencies to authenticated;
+grant select, insert, update, delete on public.profiles, public.user_settings to authenticated;
+
