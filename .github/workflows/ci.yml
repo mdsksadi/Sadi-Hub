@@ -88,7 +88,7 @@ jobs:
       - name: Apply migrations and local seed
         run: supabase db reset
 
-      - name: Verify Phase 1–2 schema
+      - name: Verify Phase 1–6 schema
         env:
           PGPASSWORD: postgres
         run: |
@@ -96,11 +96,18 @@ jobs:
           do $$
           declare
             t text;
+            v text;
+            f text;
           begin
             foreach t in array array[
               'profiles', 'user_settings', 'audit_logs', 'currencies',
               'exchange_rates', 'portfolio_projects', 'experiences',
-              'education', 'skills', 'certifications', 'social_links'
+              'education', 'skills', 'certifications', 'social_links',
+              'blog_categories', 'blog_tags', 'posts', 'post_tags',
+              'accounts', 'finance_categories', 'financial_transactions',
+              'account_transfers', 'contacts', 'loans_given',
+              'loan_given_repayments', 'loans_taken', 'loan_taken_repayments',
+              'donation_categories', 'donations', 'donation_corrections'
             ]
             loop
               if to_regclass('public.' || t) is null then
@@ -178,9 +185,150 @@ jobs:
               raise exception 'Missing scoped resume storage policy';
             end if;
 
+            foreach v in array array[
+              'public_profiles_v', 'account_balances_v', 'monthly_cashflow_v',
+              'loans_given_status_v', 'loans_taken_status_v',
+              'contact_lending_summary_v', 'contact_donation_summary_v'
+            ]
+            loop
+              if to_regclass('public.' || v) is null then
+                raise exception 'Missing view public.%', v;
+              end if;
+              if not has_table_privilege('authenticated', 'public.' || v, 'SELECT') then
+                raise exception 'Owner SELECT grant is missing on view %', v;
+              end if;
+            end loop;
+
+            foreach f in array array[
+              'is_owner', 'require_owner', 'get_resume_path',
+              'publish_scheduled_posts', 'resolve_reporting_rate',
+              'record_ledger_movement', 'seed_finance_categories',
+              'seed_donation_categories', 'create_income', 'create_expense',
+              'create_transfer', 'create_loan_given',
+              'record_loan_given_repayment', 'create_loan_taken',
+              'record_loan_taken_repayment', 'create_donation',
+              'correct_donation'
+            ]
+            loop
+              if not exists (
+                select 1
+                from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = f
+              ) then
+                raise exception 'Missing function public.%()', f;
+              end if;
+            end loop;
+
+            foreach t in array array[
+              'financial_transactions', 'donations', 'donation_corrections',
+              'loan_given_repayments', 'loan_taken_repayments'
+            ]
+            loop
+              if has_table_privilege('anon', 'public.' || t, 'SELECT') then
+                raise exception 'Anonymous SELECT is granted on %', t;
+              end if;
+              if has_table_privilege('authenticated', 'public.' || t, 'UPDATE')
+                or has_table_privilege('authenticated', 'public.' || t, 'DELETE') then
+                raise exception 'Append-only table % accepts UPDATE or DELETE', t;
+              end if;
+            end loop;
+
+            if (select count(*) from public.donation_categories
+                where owner_id = (select id from public.profiles where role = 'owner')) <> 10 then
+              raise exception 'Donation categories were not seeded for the owner';
+            end if;
+
             if (select count(*) from public.profiles where role = 'owner') <> 1 then
               raise exception 'Local seed must create exactly one owner';
             end if;
           end
           $$;
+          SQL
+
+      - name: Smoke test donation RPCs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          begin;
+          set local role authenticated;
+          set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+          set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}';
+          do $$
+          declare
+            v_owner uuid := '00000000-0000-4000-8000-000000000001';
+            v_account uuid;
+            v_contact uuid := '00000000-0000-4000-8000-000000000011';
+            v_donation uuid;
+            v_correction uuid;
+            v_type text;
+            v_income numeric;
+            v_expense numeric;
+          begin
+            select id into v_account
+            from public.accounts
+            where owner_id = v_owner and name = 'EUR checking';
+            if v_account is null then
+              raise exception 'Missing seeded EUR checking account';
+            end if;
+
+            v_donation := public.create_donation(
+              p_contact_id => v_contact,
+              p_amount => '10.0000',
+              p_donation_date => '2026-01-02',
+              p_source_account_id => v_account
+            );
+
+            v_correction := public.correct_donation(
+              p_donation_id => v_donation,
+              p_correction_type => 'adjustment',
+              p_amount => '2.0000',
+              p_reason => 'CI adjustment'
+            );
+            select correction_type into v_type
+            from public.donation_corrections
+            where id = v_correction;
+            if v_type is distinct from 'adjustment' then
+              raise exception 'Adjustment stored as %', v_type;
+            end if;
+
+            v_correction := public.correct_donation(
+              p_donation_id => v_donation,
+              p_correction_type => 'reversal',
+              p_amount => '10.0000',
+              p_reason => 'CI reversal'
+            );
+            select correction_type into v_type
+            from public.donation_corrections
+            where id = v_correction;
+            if v_type is distinct from 'reversal' then
+              raise exception 'Reversal stored as %', v_type;
+            end if;
+
+            begin
+              perform public.correct_donation(
+                p_donation_id => v_donation,
+                p_correction_type => 'reversal',
+                p_amount => '0.0001',
+                p_reason => 'CI over-reversal'
+              );
+              raise exception 'Over-reversal was accepted';
+            exception
+              when sqlstate '23514' then null;
+            end;
+
+            select income_amount, expense_amount into v_income, v_expense
+            from public.monthly_cashflow_v
+            where owner_id = v_owner
+              and month = '2026-01'
+              and currency_code = 'EUR'
+              and reporting_currency = 'EUR';
+            if v_income is distinct from 10 or v_expense is distinct from 12 then
+              raise exception 'Unexpected donation cashflow: income %, expense %',
+                v_income, v_expense;
+            end if;
+          end
+          $$;
+          rollback;
           SQL
