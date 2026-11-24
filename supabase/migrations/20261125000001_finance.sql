@@ -283,3 +283,299 @@ revoke all on function public.record_ledger_movement(
 grant execute on function public.record_ledger_movement(
   uuid, uuid, text, smallint, numeric, date, uuid, uuid, text, uuid, text, text, uuid
 ) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Business RPCs. Each locks the affected accounts, checks the available cash
+-- balance, and writes business + ledger rows in one transaction.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_income(
+  p_account_id uuid,
+  p_amount numeric,
+  p_business_date date,
+  p_category_id uuid,
+  p_description text,
+  p_notes text,
+  p_reference_number text
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner_id uuid := (select auth.uid());
+  v_account public.accounts%rowtype;
+  v_notes text;
+  v_ledger_id uuid;
+begin
+  perform public.require_owner();
+
+  -- Locked so concurrent movements cannot interleave with this deposit.
+  select a.* into v_account
+    from public.accounts a
+   where a.id = p_account_id
+     and a.owner_id = v_owner_id
+   for update;
+  if not found then
+    raise exception 'Account not found' using errcode = '22023';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Amount must be greater than zero' using errcode = '22023';
+  end if;
+
+  if p_category_id is not null and not exists (
+    select 1 from public.finance_categories c
+     where c.id = p_category_id
+       and c.owner_id = v_owner_id
+       and c.kind = 'income'
+  ) then
+    raise exception 'Category not found' using errcode = '22023';
+  end if;
+
+  if p_reference_number is null or btrim(p_reference_number) = '' then
+    v_notes := p_notes;
+  elsif p_notes is null or btrim(p_notes) = '' then
+    v_notes := 'Reference: ' || btrim(p_reference_number);
+  else
+    v_notes := p_notes || E'\nReference: ' || btrim(p_reference_number);
+  end if;
+
+  v_ledger_id := public.record_ledger_movement(
+    v_owner_id, p_account_id, 'income', 1, p_amount, p_business_date,
+    p_category_id, null, 'income', null, p_description, v_notes, null
+  );
+  return v_ledger_id;
+end;
+$$;
+
+create or replace function public.create_expense(
+  p_account_id uuid,
+  p_amount numeric,
+  p_business_date date,
+  p_category_id uuid,
+  p_description text,
+  p_notes text,
+  p_reference_number text
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner_id uuid := (select auth.uid());
+  v_account public.accounts%rowtype;
+  v_movements numeric(18, 4);
+  v_balance numeric(18, 4);
+  v_notes text;
+  v_ledger_id uuid;
+begin
+  perform public.require_owner();
+
+  select a.* into v_account
+    from public.accounts a
+   where a.id = p_account_id
+     and a.owner_id = v_owner_id
+   for update;
+  if not found then
+    raise exception 'Account not found' using errcode = '22023';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Amount must be greater than zero' using errcode = '22023';
+  end if;
+
+  if p_category_id is not null and not exists (
+    select 1 from public.finance_categories c
+     where c.id = p_category_id
+       and c.owner_id = v_owner_id
+       and c.kind = 'expense'
+  ) then
+    raise exception 'Category not found' using errcode = '22023';
+  end if;
+
+  select coalesce(sum(t.direction::numeric * t.amount), 0)
+    into v_movements
+    from public.financial_transactions t
+   where t.owner_id = v_owner_id
+     and t.account_id = p_account_id;
+  v_balance := round(v_account.opening_balance + v_movements, 4);
+  if p_amount > v_balance then
+    raise exception 'Insufficient balance' using errcode = '22023';
+  end if;
+
+  if p_reference_number is null or btrim(p_reference_number) = '' then
+    v_notes := p_notes;
+  elsif p_notes is null or btrim(p_notes) = '' then
+    v_notes := 'Reference: ' || btrim(p_reference_number);
+  else
+    v_notes := p_notes || E'\nReference: ' || btrim(p_reference_number);
+  end if;
+
+  v_ledger_id := public.record_ledger_movement(
+    v_owner_id, p_account_id, 'expense', -1, p_amount, p_business_date,
+    p_category_id, null, 'expense', null, p_description, v_notes, null
+  );
+  return v_ledger_id;
+end;
+$$;
+
+create or replace function public.create_transfer(
+  p_source_account_id uuid,
+  p_destination_account_id uuid,
+  p_source_amount numeric,
+  p_destination_amount numeric,
+  p_exchange_rate numeric,
+  p_fee_amount numeric,
+  p_transfer_date date,
+  p_reference_number text,
+  p_notes text
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner_id uuid := (select auth.uid());
+  v_source public.accounts%rowtype;
+  v_destination public.accounts%rowtype;
+  v_movements numeric(18, 4);
+  v_balance numeric(18, 4);
+  v_rate numeric(18, 8);
+  v_fee numeric(18, 4) := coalesce(p_fee_amount, 0);
+  v_transfer_id uuid;
+  v_out_ledger_id uuid;
+  v_in_ledger_id uuid;
+  v_fee_ledger_id uuid;
+begin
+  perform public.require_owner();
+
+  if p_source_account_id = p_destination_account_id then
+    raise exception 'Source and destination accounts must differ'
+      using errcode = '22023';
+  end if;
+  if p_source_amount is null or p_source_amount <= 0
+     or p_destination_amount is null or p_destination_amount <= 0 then
+    raise exception 'Transfer amounts must be greater than zero'
+      using errcode = '22023';
+  end if;
+  if v_fee < 0 then
+    raise exception 'The transfer fee cannot be negative'
+      using errcode = '22023';
+  end if;
+
+  select a.* into v_source
+    from public.accounts a
+   where a.id = p_source_account_id
+     and a.owner_id = v_owner_id
+   for update;
+  if not found then
+    raise exception 'Source account not found' using errcode = '22023';
+  end if;
+
+  select a.* into v_destination
+    from public.accounts a
+   where a.id = p_destination_account_id
+     and a.owner_id = v_owner_id
+   for update;
+  if not found then
+    raise exception 'Destination account not found' using errcode = '22023';
+  end if;
+
+  if v_source.currency_code = v_destination.currency_code then
+    if round(p_destination_amount, 4) <> round(p_source_amount - v_fee, 4) then
+      raise exception
+        'For the same currency, the destination amount must equal the source amount minus the fee'
+        using errcode = '22023';
+    end if;
+    v_rate := 1;
+  else
+    if p_exchange_rate is null or p_exchange_rate <= 0 then
+      raise exception 'The exchange rate must be greater than zero'
+        using errcode = '22023';
+    end if;
+    v_rate := p_exchange_rate;
+  end if;
+
+  select coalesce(sum(t.direction::numeric * t.amount), 0)
+    into v_movements
+    from public.financial_transactions t
+   where t.owner_id = v_owner_id
+     and t.account_id = p_source_account_id;
+  v_balance := round(v_source.opening_balance + v_movements, 4);
+  if round(p_source_amount + v_fee, 4) > v_balance then
+    raise exception 'Insufficient balance' using errcode = '22023';
+  end if;
+
+  insert into public.account_transfers (
+    owner_id,
+    source_account_id,
+    destination_account_id,
+    source_amount,
+    source_currency,
+    destination_amount,
+    destination_currency,
+    exchange_rate,
+    fee_amount,
+    transfer_date,
+    reference_number,
+    notes
+  ) values (
+    v_owner_id,
+    p_source_account_id,
+    p_destination_account_id,
+    p_source_amount,
+    v_source.currency_code,
+    p_destination_amount,
+    v_destination.currency_code,
+    v_rate,
+    v_fee,
+    p_transfer_date,
+    p_reference_number,
+    p_notes
+  )
+  returning id into v_transfer_id;
+
+  v_out_ledger_id := public.record_ledger_movement(
+    v_owner_id, p_source_account_id, 'transfer_out', -1, p_source_amount,
+    p_transfer_date, null, v_transfer_id, 'transfer', v_transfer_id,
+    'Transfer to ' || v_destination.name, p_notes, null
+  );
+  v_in_ledger_id := public.record_ledger_movement(
+    v_owner_id, p_destination_account_id, 'transfer_in', 1, p_destination_amount,
+    p_transfer_date, null, v_transfer_id, 'transfer', v_transfer_id,
+    'Transfer from ' || v_source.name, p_notes, null
+  );
+  if v_fee > 0 then
+    v_fee_ledger_id := public.record_ledger_movement(
+      v_owner_id, p_source_account_id, 'expense', -1, v_fee,
+      p_transfer_date, null, v_transfer_id, 'transfer_fee', v_transfer_id,
+      'Transfer fee', p_notes, null
+    );
+  end if;
+
+  update public.account_transfers
+     set out_ledger_id = v_out_ledger_id,
+         in_ledger_id = v_in_ledger_id,
+         fee_ledger_id = v_fee_ledger_id
+   where id = v_transfer_id
+     and owner_id = v_owner_id;
+
+  return v_transfer_id;
+end;
+$$;
+
+revoke all on function public.create_income(uuid, numeric, date, uuid, text, text, text)
+  from public, anon;
+revoke all on function public.create_expense(uuid, numeric, date, uuid, text, text, text)
+  from public, anon;
+revoke all on function public.create_transfer(uuid, uuid, numeric, numeric, numeric, numeric, date, text, text)
+  from public, anon;
+
+grant execute on function public.create_income(uuid, numeric, date, uuid, text, text, text)
+  to authenticated;
+grant execute on function public.create_expense(uuid, numeric, date, uuid, text, text, text)
+  to authenticated;
+grant execute on function public.create_transfer(uuid, uuid, numeric, numeric, numeric, numeric, date, text, text)
+  to authenticated;
+
