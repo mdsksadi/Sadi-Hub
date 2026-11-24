@@ -169,3 +169,72 @@ create trigger social_links_audit
   after insert or update or delete on public.social_links
   for each row execute function public.audit_mutation();
 
+-- ---------------------------------------------------------------------------
+-- RLS: owner has full control; everyone else sees published rows only.
+-- ---------------------------------------------------------------------------
+
+alter table public.portfolio_projects enable row level security;
+alter table public.experiences enable row level security;
+alter table public.education enable row level security;
+alter table public.skills enable row level security;
+alter table public.certifications enable row level security;
+alter table public.social_links enable row level security;
+
+create policy portfolio_projects_owner_all on public.portfolio_projects
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy portfolio_projects_public_read on public.portfolio_projects
+  for select to anon, authenticated
+  using (is_published and deleted_at is null);
+
+create policy experiences_owner_all on public.experiences
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy experiences_public_read on public.experiences
+  for select to anon, authenticated
+  using (is_published and deleted_at is null);
+
+create policy education_owner_all on public.education
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy education_public_read on public.education
+  for select to anon, authenticated
+  using (is_published and deleted_at is null);
+
+create policy skills_owner_all on public.skills
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy skills_public_read on public.skills
+  for select to anon, authenticated
+  using (is_published and deleted_at is null);
+
+create policy certifications_owner_all on public.certifications
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy certifications_public_read on public.certifications
+  for select to anon, authenticated
+  using (is_published and deleted_at is null);
+
+create policy social_links_owner_all on public.social_links
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy social_links_public_read on public.social_links
+  for select to anon, authenticated
+  using (is_published);
+
+-- Explicit grants keep public portfolio reads working when default table
+-- exposure is disabled. Policies still limit anon to published, live rows.
+grant select on public.portfolio_projects, public.experiences, public.education,
+  public.skills, public.certifications, public.social_links to anon, authenticated;
+grant insert, update, delete on public.portfolio_projects, public.experiences,
+  public.education, public.skills, public.certifications,
+  public.social_links to authenticated;
+revoke insert, update, delete on public.portfolio_projects, public.experiences,
+  public.education, public.skills, public.certifications,
+  public.social_links from anon;
