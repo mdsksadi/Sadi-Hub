@@ -299,3 +299,70 @@ grant select, insert on public.exchange_rates to authenticated;
 grant select on public.currencies to authenticated;
 grant select, insert, update, delete on public.profiles, public.user_settings to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- Storage buckets. Object policies are the only download/list/upload gate.
+-- ---------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values
+  ('portfolio', 'portfolio', true, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml', 'image/avif'])
+on conflict (id) do update set
+  -- Never flip an existing bucket to public; that could expose pre-existing objects.
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('documents', 'documents', false, 20971520, array['application/pdf'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+create policy portfolio_objects_public_read on storage.objects
+  for select to anon, authenticated
+  using (bucket_id = 'portfolio');
+
+create policy portfolio_objects_owner_write on storage.objects
+  for all to authenticated
+  using (
+    bucket_id = 'portfolio'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+    and public.is_owner()
+  )
+  with check (
+    bucket_id = 'portfolio'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+    and public.is_owner()
+  );
+
+create policy document_objects_owner_all on storage.objects
+  for all to authenticated
+  using (
+    bucket_id = 'documents'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+    and public.is_owner()
+  )
+  with check (
+    bucket_id = 'documents'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+    and public.is_owner()
+  );
+
+-- The resume is the one private-bucket object intended for public reading.
+-- The path must match the active owner's current resume_path exactly; no
+-- filename wildcard and no owner-folder guessing are accepted.
+create policy resume_object_public_read on storage.objects
+  for select to anon, authenticated
+  using (
+    bucket_id = 'documents'
+    and name = (select public.get_resume_path())
+  );
+
+-- ---------------------------------------------------------------------------
+-- Seed data
+-- ---------------------------------------------------------------------------
+
+insert into public.currencies (code, name, minor_units) values
+  ('EUR', 'Euro', 2),
+  ('BDT', 'Bangladeshi Taka', 2)
+on conflict (code) do update set name = excluded.name, minor_units = excluded.minor_units;
