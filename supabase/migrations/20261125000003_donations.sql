@@ -245,3 +245,307 @@ group by owner_id, recipient_key, contact_id, currency_code, country_code;
 
 revoke all on public.contact_donation_summary_v from public, anon;
 grant select on public.contact_donation_summary_v to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Atomic RPCs. Both are SECURITY INVOKER so RLS and require_owner() apply.
+-- Ledger rows are written first with a pre-generated business id, so no
+-- immutable business row ever needs an UPDATE after its ledger id is known.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_donation(
+  p_contact_id uuid default null,
+  p_recipient_name text default null,
+  p_recipient_type text default null,
+  p_amount text default null,
+  p_currency_code text default null,
+  p_donation_date text default null,
+  p_source_account_id uuid default null,
+  p_purpose text default null,
+  p_category_id uuid default null,
+  p_country_code text default null,
+  p_payment_method text default null,
+  p_reference_number text default null,
+  p_notes text default null
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner_id uuid := (select auth.uid());
+  v_account public.accounts%rowtype;
+  v_contact public.contacts%rowtype;
+  v_amount numeric;
+  v_balance numeric;
+  v_currency text;
+  v_requested_currency text;
+  v_recipient_name text;
+  v_recipient_type text;
+  v_country text;
+  v_donation_id uuid := gen_random_uuid();
+  v_ledger_id uuid;
+begin
+  perform public.require_owner();
+
+  if p_source_account_id is null then
+    raise exception 'Source account is required' using errcode = '22004';
+  end if;
+
+  begin
+    v_amount := nullif(btrim(coalesce(p_amount, '')), '')::numeric;
+  exception when invalid_text_representation then
+    raise exception 'Enter a valid amount' using errcode = '22023';
+  end;
+  if v_amount is null or v_amount <= 0 then
+    raise exception 'Amount must be greater than zero' using errcode = '22023';
+  end if;
+
+  if coalesce(btrim(coalesce(p_donation_date, '')), '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+    raise exception 'Use a valid date' using errcode = '22023';
+  end if;
+
+  -- Lock the account before checking its balance and writing the ledger row.
+  select * into v_account
+  from public.accounts a
+  where a.id = p_source_account_id and a.owner_id = v_owner_id
+  for update;
+  if not found then
+    raise exception 'Account not found' using errcode = '22023';
+  end if;
+  if not v_account.is_active then
+    raise exception 'Account is not active' using errcode = '22023';
+  end if;
+
+  -- The account is the currency source; an explicit value must agree with it.
+  v_currency := btrim(v_account.currency_code::text);
+  v_requested_currency := nullif(upper(btrim(coalesce(p_currency_code, ''))), '');
+  if v_requested_currency is not null and v_requested_currency <> v_currency then
+    raise exception 'Currency % does not match the source account currency %',
+      v_requested_currency, v_currency using errcode = '22023';
+  end if;
+
+  if p_contact_id is not null then
+    select * into v_contact
+    from public.contacts c
+    where c.id = p_contact_id and c.owner_id = v_owner_id;
+    if not found then
+      raise exception 'Contact not found' using errcode = '22023';
+    end if;
+    v_recipient_name := coalesce(
+      nullif(btrim(coalesce(p_recipient_name, '')), ''),
+      btrim(v_contact.full_name)
+    );
+    v_recipient_type := v_contact.contact_type::text;
+    v_country := nullif(
+      coalesce(btrim(coalesce(p_country_code, '')), btrim(v_contact.country_code)),
+      ''
+    );
+  else
+    v_recipient_name := btrim(coalesce(p_recipient_name, ''));
+    v_recipient_type := btrim(coalesce(p_recipient_type, ''));
+    if v_recipient_type not in ('individual', 'organization') then
+      raise exception 'Recipient type is required' using errcode = '22023';
+    end if;
+    v_country := nullif(btrim(coalesce(p_country_code, '')), '');
+  end if;
+
+  if coalesce(v_recipient_name, '') = '' then
+    raise exception 'Recipient name is required' using errcode = '22023';
+  end if;
+  if length(v_recipient_name) > 150 then
+    raise exception 'Recipient name is too long' using errcode = '22023';
+  end if;
+  if v_country is not null and length(v_country) <> 2 then
+    raise exception 'Country code must be two letters' using errcode = '22023';
+  end if;
+  if p_category_id is not null and not exists (
+    select 1 from public.donation_categories dc
+    where dc.id = p_category_id and dc.owner_id = v_owner_id
+  ) then
+    raise exception 'Category not found' using errcode = '22023';
+  end if;
+
+  select v_account.opening_balance + coalesce((
+    select sum(t.direction::numeric * t.amount)
+    from public.financial_transactions t
+    where t.owner_id = v_owner_id and t.account_id = v_account.id
+  ), 0) into v_balance;
+  if v_balance < v_amount then
+    raise exception 'Insufficient balance' using errcode = '23514';
+  end if;
+
+  -- Donation categories are a separate taxonomy from finance categories, so
+  -- the ledger keeps its category null and the business row stores the slug id.
+  v_ledger_id := public.record_ledger_movement(
+    v_owner_id,
+    v_account.id,
+    'donation',
+    -1,
+    v_amount,
+    p_donation_date::date,
+    null,
+    null,
+    'donation',
+    v_donation_id,
+    'Donation to ' || v_recipient_name,
+    p_notes,
+    null
+  );
+
+  insert into public.donations (
+    id, owner_id, contact_id, recipient_name, recipient_type, amount,
+    currency_code, donation_date, purpose, category_id, country_code,
+    source_account_id, payment_method, reference_number, notes,
+    ledger_transaction_id, created_by
+  ) values (
+    v_donation_id, v_owner_id, p_contact_id, v_recipient_name, v_recipient_type,
+    v_amount, v_currency, p_donation_date::date,
+    nullif(btrim(coalesce(p_purpose, '')), ''), p_category_id, v_country,
+    v_account.id,
+    nullif(btrim(coalesce(p_payment_method, '')), ''),
+    nullif(btrim(coalesce(p_reference_number, '')), ''),
+    nullif(btrim(coalesce(p_notes, '')), ''),
+    v_ledger_id, v_owner_id
+  );
+
+  return v_donation_id;
+end;
+$$;
+
+create or replace function public.correct_donation(
+  p_donation_id uuid default null,
+  p_correction_type text default null,
+  p_amount text default null,
+  p_reason text default null
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner_id uuid := (select auth.uid());
+  v_donation public.donations%rowtype;
+  v_account public.accounts%rowtype;
+  v_amount numeric;
+  v_balance numeric;
+  v_refundable numeric;
+  v_correction_type text;
+  v_ledger_type text;
+  v_direction smallint;
+  v_reverses_transaction_id uuid;
+  v_correction_id uuid := gen_random_uuid();
+  v_ledger_id uuid;
+begin
+  perform public.require_owner();
+
+  if p_donation_id is null then
+    raise exception 'Donation is required' using errcode = '22004';
+  end if;
+  if btrim(coalesce(p_correction_type, '')) not in ('reversal', 'adjustment') then
+    raise exception 'Use reversal or adjustment' using errcode = '22023';
+  end if;
+  if coalesce(btrim(coalesce(p_reason, '')), '') = '' then
+    raise exception 'Reason is required' using errcode = '22023';
+  end if;
+
+  begin
+    v_amount := nullif(btrim(coalesce(p_amount, '')), '')::numeric;
+  exception when invalid_text_representation then
+    raise exception 'Enter a valid amount' using errcode = '22023';
+  end;
+  if v_amount is null or v_amount <= 0 then
+    raise exception 'Amount must be greater than zero' using errcode = '22023';
+  end if;
+
+  -- The original donation is never locked for update: authenticated has no
+  -- UPDATE privilege on this immutable table. The source account lock below
+  -- serializes concurrent corrections for the same cash balance.
+  select * into v_donation
+  from public.donations d
+  where d.id = p_donation_id and d.owner_id = v_owner_id;
+  if not found then
+    raise exception 'Donation not found' using errcode = '22023';
+  end if;
+
+  select * into v_account
+  from public.accounts a
+  where a.id = v_donation.source_account_id and a.owner_id = v_owner_id
+  for update;
+  if not found then
+    raise exception 'Account not found' using errcode = '22023';
+  end if;
+
+  v_correction_type := btrim(p_correction_type);
+  if v_correction_type = 'reversal' then
+    v_ledger_type := 'reversal';
+    v_direction := 1;
+    v_reverses_transaction_id := v_donation.ledger_transaction_id;
+
+    -- Adjustments increase the refundable gift; earlier reversals reduce it.
+    -- The account lock above serializes this check with other corrections.
+    select v_donation.amount + coalesce(sum(case
+      when c.correction_type = 'adjustment' then c.amount
+      else -c.amount
+    end), 0) into v_refundable
+    from public.donation_corrections c
+    where c.owner_id = v_owner_id and c.donation_id = v_donation.id;
+    if v_amount > v_refundable then
+      raise exception 'Reversal exceeds the remaining donation amount'
+        using errcode = '23514';
+    end if;
+  else
+    v_ledger_type := 'correction';
+    v_direction := -1;
+    v_reverses_transaction_id := null;
+
+    select v_account.opening_balance + coalesce((
+      select sum(t.direction::numeric * t.amount)
+      from public.financial_transactions t
+      where t.owner_id = v_owner_id and t.account_id = v_account.id
+    ), 0) into v_balance;
+    if v_balance < v_amount then
+      raise exception 'Insufficient balance' using errcode = '23514';
+    end if;
+  end if;
+
+  v_ledger_id := public.record_ledger_movement(
+    v_owner_id,
+    v_account.id,
+    v_ledger_type,
+    v_direction,
+    v_amount,
+    v_donation.donation_date,
+    null,
+    null,
+    'donation_correction',
+    v_correction_id,
+    'Donation ' || v_ledger_type || ' for ' || v_donation.recipient_name,
+    p_reason,
+    v_reverses_transaction_id
+  );
+
+  insert into public.donation_corrections (
+    id, owner_id, donation_id, correction_type, amount, reason,
+    ledger_transaction_id
+  ) values (
+    v_correction_id, v_owner_id, v_donation.id, v_correction_type, v_amount,
+    btrim(p_reason), v_ledger_id
+  );
+
+  return v_correction_id;
+end;
+$$;
+
+revoke all on function public.create_donation(
+  uuid, text, text, text, text, text, uuid, text, uuid, text, text, text, text
+) from public, anon;
+grant execute on function public.create_donation(
+  uuid, text, text, text, text, text, uuid, text, uuid, text, text, text, text
+) to authenticated;
+
+revoke all on function public.correct_donation(uuid, text, text, text)
+  from public, anon;
+grant execute on function public.correct_donation(uuid, text, text, text)
+  to authenticated;
