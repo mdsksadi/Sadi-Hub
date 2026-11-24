@@ -253,3 +253,166 @@ create trigger loan_given_repayments_limit
 create trigger loan_taken_repayments_limit
   before insert or update on public.loan_taken_repayments
   for each row execute function public.enforce_repayment_limit();
+
+-- ---------------------------------------------------------------------------
+-- RLS and grants
+-- ---------------------------------------------------------------------------
+
+alter table public.contacts enable row level security;
+alter table public.loans_given enable row level security;
+alter table public.loan_given_repayments enable row level security;
+alter table public.loans_taken enable row level security;
+alter table public.loan_taken_repayments enable row level security;
+
+create policy contacts_owner_select on public.contacts
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+create policy contacts_owner_insert on public.contacts
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy contacts_owner_update on public.contacts
+  for update to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy loans_given_owner_select on public.loans_given
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+create policy loans_given_owner_insert on public.loans_given
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy loans_given_owner_update on public.loans_given
+  for update to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy loan_given_repayments_owner_select on public.loan_given_repayments
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+create policy loan_given_repayments_owner_insert on public.loan_given_repayments
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy loans_taken_owner_select on public.loans_taken
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+create policy loans_taken_owner_insert on public.loans_taken
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy loans_taken_owner_update on public.loans_taken
+  for update to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy loan_taken_repayments_owner_select on public.loan_taken_repayments
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+create policy loan_taken_repayments_owner_insert on public.loan_taken_repayments
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+revoke all on public.contacts, public.loans_given, public.loan_given_repayments,
+  public.loans_taken, public.loan_taken_repayments from anon, authenticated;
+
+grant select, insert, update on public.contacts, public.loans_given,
+  public.loans_taken to authenticated;
+grant select, insert on public.loan_given_repayments,
+  public.loan_taken_repayments to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Computed views. Cancelled loans stay visible in the status views so their
+-- history can be reviewed, but are excluded from contact lending totals.
+-- ---------------------------------------------------------------------------
+
+create or replace view public.loans_given_status_v
+with (security_invoker = true) as
+select
+  lg.*,
+  coalesce(r.total_repaid, 0) as total_repaid,
+  lg.amount - coalesce(r.total_repaid, 0) as outstanding,
+  case
+    when lg.cancelled_at is not null then 'Cancelled'
+    when lg.amount - coalesce(r.total_repaid, 0) <= 0 then 'Fully Repaid'
+    when lg.amount - coalesce(r.total_repaid, 0) < lg.amount then 'Partially Repaid'
+    when lg.expected_repayment_date is not null
+      and lg.expected_repayment_date < current_date then 'Overdue'
+    else 'Pending'
+  end::text as status
+from public.loans_given lg
+left join (
+  select loan_id, sum(amount) as total_repaid
+  from public.loan_given_repayments
+  where cancelled_at is null
+  group by loan_id
+) r on r.loan_id = lg.id;
+
+create or replace view public.loans_taken_status_v
+with (security_invoker = true) as
+select
+  lt.*,
+  coalesce(r.total_repaid, 0) as total_repaid,
+  lt.amount - coalesce(r.total_repaid, 0) as outstanding,
+  case
+    when lt.cancelled_at is not null then 'Cancelled'
+    when lt.amount - coalesce(r.total_repaid, 0) <= 0 then 'Fully Repaid'
+    when lt.amount - coalesce(r.total_repaid, 0) < lt.amount then 'Partially Repaid'
+    when lt.expected_repayment_date is not null
+      and lt.expected_repayment_date < current_date then 'Overdue'
+    else 'Active'
+  end::text as status
+from public.loans_taken lt
+left join (
+  select loan_id, sum(amount) as total_repaid
+  from public.loan_taken_repayments
+  where cancelled_at is null
+  group by loan_id
+) r on r.loan_id = lt.id;
+
+create or replace view public.contact_lending_summary_v
+with (security_invoker = true) as
+with loan_totals as (
+  select
+    l.id,
+    l.owner_id,
+    l.contact_id,
+    l.currency_code,
+    l.amount,
+    l.date_given,
+    l.expected_repayment_date,
+    coalesce(r.total_repaid, 0) as total_repaid
+  from public.loans_given l
+  left join (
+    select loan_id, sum(amount) as total_repaid
+    from public.loan_given_repayments
+    where cancelled_at is null
+    group by loan_id
+  ) r on r.loan_id = l.id
+  where l.cancelled_at is null
+)
+select
+  lt.owner_id,
+  c.id as contact_id,
+  c.full_name,
+  c.contact_type,
+  lt.currency_code,
+  sum(lt.amount) as lent_amount,
+  sum(lt.total_repaid) as repaid_amount,
+  sum(lt.amount - lt.total_repaid) as outstanding_amount,
+  coalesce(sum(case
+    when lt.expected_repayment_date < current_date
+      and lt.amount - lt.total_repaid > 0
+    then lt.amount - lt.total_repaid
+    else 0
+  end), 0) as overdue_amount,
+  count(*) as loan_count,
+  min(lt.date_given) as first_date,
+  max(lt.date_given) as last_date
+from loan_totals lt
+join public.contacts c
+  on c.id = lt.contact_id and c.owner_id = lt.owner_id
+group by lt.owner_id, c.id, c.full_name, c.contact_type, lt.currency_code;
+
+revoke all on public.loans_given_status_v, public.loans_taken_status_v,
+  public.contact_lending_summary_v from anon, authenticated;
+grant select on public.loans_given_status_v, public.loans_taken_status_v,
+  public.contact_lending_summary_v to authenticated;
