@@ -1,6 +1,6 @@
 # Deployment guide
 
-This guide covers the Phase 0–2 stack: Next.js 16 on Cloudflare Workers via `@opennextjs/cloudflare`, Supabase Auth/Postgres/Storage, and the R2 + Durable Object + D1 ISR cache.
+This guide covers the Phase 0–6 stack (through Donations): Next.js 16 on Cloudflare Workers via `@opennextjs/cloudflare`, Supabase Auth/Postgres/Storage, and the R2 + Durable Object + D1 ISR cache.
 
 ## 1. Supabase project
 
@@ -18,9 +18,9 @@ This guide covers the Phase 0–2 stack: Next.js 16 on Cloudflare Workers via `@
    npm run db:push
    ```
 
-   Alternatively paste each migration into the SQL editor in filename order. Do **not** run `supabase/seed.sql` in production.
+   Alternatively paste each migration into the SQL editor in filename order: foundation, portfolio, blog, finance, lending, then donations. Do **not** run `supabase/seed.sql` in production.
 
-5. Create the single owner Auth user and profile as shown in [`docs/DATABASE.md`](DATABASE.md#provisioning-a-hosted-owner).
+5. Create the single owner Auth user and profile as shown in [`docs/DATABASE.md`](DATABASE.md#provisioning-a-hosted-owner). Donation categories are seeded by the profile trigger. Before recording a transaction in a currency other than the reporting currency, add an `exchange_rates` snapshot from `/admin/finance/rates` (or SQL) covering its business date; mutations fail closed rather than summing mixed currencies.
 6. Sign in at `/admin/login`; the first sign-in redirects to `/mfa/setup` to enroll a TOTP factor. Afterwards the proxy denies all `/admin/*` routes and `/mfa/setup` itself until the `aal2` claim is present. Existing factors are managed under `/admin/settings`.
 
 The migration creates the `portfolio` (public) and `documents` (private) buckets. Upload limits are 5 MiB for images and 20 MiB for documents; the app additionally caps avatar uploads at 5 MiB and resumes at 10 MiB.
@@ -86,7 +86,7 @@ For a preview deployment, change the `name` and `workers.dev` route in `wrangler
 
 - Public pages use `export const revalidate = 300`; the sitemap uses one hour.
 - `/projects/[slug]` is generated on demand and revalidated with the same policy.
-- Admin pages and API routes are dynamic; `/admin/*`, `/mfa/setup`, `/api/contact`, auth redirects, and refreshed sessions include `private, no-store, max-age=0`.
+- Admin pages and API routes are dynamic; `/admin/*` (including all `/admin/finance/*` screens), `/mfa/setup`, `/api/contact`, auth redirects, and refreshed sessions include `private, no-store, max-age=0`.
 - The ISR cache uses R2 for incremental cache data, the Durable Object queue for revalidation, and D1 for tag invalidation.
 - Server Actions call `revalidatePath()` for affected public routes after profile or portfolio edits.
 
@@ -102,7 +102,10 @@ If you prefer not to create R2/D1/DO resources, remove the overrides from `open-
 - [ ] Password sign-in without a verified TOTP factor cannot access `/admin/*`.
 - [ ] `/api/resume` returns the PDF bytes with `application/pdf`, and no storage URL or private object path appears in page HTML.
 - [ ] Contact form rejects invalid input and respects rate limits; server logs contain no sender PII when no webhook is configured.
-- [ ] Admin, setup, contact, and auth-redirect responses include `Cache-Control: private, no-store`.
+- [ ] `/admin/finance`, `accounts`, `transactions`, `transfers`, `contacts`, `lending`, `borrowing`, `donations`, `reports`, and `rates` redirect unauthenticated visitors and return `Cache-Control: private, no-store`.
+- [ ] An income, an expense and a transfer produce the expected account balances; loan repayments cannot exceed principal; donations are immutable and corrections add separate ledger rows.
+- [ ] A missing exchange-rate snapshot fails the mutation with a clear message; after adding a rate the translated amount appears with its original currency and rate.
+- [ ] Admin, setup, contact, finance, and auth-redirect responses include `Cache-Control: private, no-store`.
 - [ ] `npm run check:size` and `npm run check:secrets` pass in CI.
 
 ## 6. Operational notes
@@ -110,4 +113,4 @@ If you prefer not to create R2/D1/DO resources, remove the overrides from `open-
 - Supabase free projects pause after inactivity. Use a keep-alive job or upgrade if the site must always be warm.
 - Rotate Supabase and Cloudflare credentials from their providers; never commit replacement values.
 - The current application does not use a custom domain by default; Cloudflare assigns a `workers.dev` URL.
-- Backup/restore tooling and the remaining business modules are part of later plan phases and are not included in this deployment.
+- Property, documents, audit-log UI, automated scheduled publishing and backup/restore tooling are part of later plan phases and are not included in this deployment.
