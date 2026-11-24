@@ -112,3 +112,144 @@ create table public.loan_taken_repayments (
 
 create index loan_taken_repayments_owner_loan_idx
   on public.loan_taken_repayments (owner_id, loan_id, payment_date);
+
+-- ---------------------------------------------------------------------------
+-- Timestamps and audit. Repayment rows are append-only: no updated_at column.
+-- ---------------------------------------------------------------------------
+
+create trigger contacts_set_updated_at
+  before update on public.contacts
+  for each row execute function public.set_updated_at();
+create trigger loans_given_set_updated_at
+  before update on public.loans_given
+  for each row execute function public.set_updated_at();
+create trigger loans_taken_set_updated_at
+  before update on public.loans_taken
+  for each row execute function public.set_updated_at();
+
+create trigger contacts_audit
+  after insert or update or delete on public.contacts
+  for each row execute function public.audit_mutation();
+create trigger loans_given_audit
+  after insert or update or delete on public.loans_given
+  for each row execute function public.audit_mutation();
+create trigger loan_given_repayments_audit
+  after insert or update or delete on public.loan_given_repayments
+  for each row execute function public.audit_mutation();
+create trigger loans_taken_audit
+  after insert or update or delete on public.loans_taken
+  for each row execute function public.audit_mutation();
+create trigger loan_taken_repayments_audit
+  after insert or update or delete on public.loan_taken_repayments
+  for each row execute function public.audit_mutation();
+
+-- ---------------------------------------------------------------------------
+-- Overpayment backstop. RPCs check first; this trigger also protects direct
+-- inserts/updates. The parent row is locked so concurrent repayments cannot
+-- both pass the check.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.enforce_repayment_limit()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_loan_amount numeric(18, 4);
+  v_loan_owner uuid;
+  v_loan_cancelled_at timestamptz;
+  v_loan_currency char(3);
+  v_account_currency char(3);
+  v_total numeric(18, 4);
+begin
+  if tg_table_name = 'loan_given_repayments' then
+    select l.amount, l.owner_id, l.cancelled_at, l.currency_code
+      into v_loan_amount, v_loan_owner, v_loan_cancelled_at, v_loan_currency
+      from public.loans_given l
+     where l.id = new.loan_id
+       and l.owner_id = new.owner_id
+     for update;
+
+    if not found then
+      raise exception 'Loan not found' using errcode = '22023';
+    end if;
+    if v_loan_cancelled_at is not null then
+      raise exception 'Loan is cancelled' using errcode = '22023';
+    end if;
+
+    select a.currency_code
+      into v_account_currency
+      from public.accounts a
+     where a.id = new.receiving_account_id
+       and a.owner_id = v_loan_owner;
+
+    if not found then
+      raise exception 'Account not found' using errcode = '22023';
+    end if;
+    if v_account_currency is distinct from v_loan_currency then
+      raise exception 'Repayment currency does not match the loan currency'
+        using errcode = '22023';
+    end if;
+
+    select coalesce(sum(r.amount), 0)
+      into v_total
+      from public.loan_given_repayments r
+     where r.loan_id = new.loan_id
+       and r.cancelled_at is null
+       and (tg_op <> 'UPDATE' or r.id <> new.id);
+  else
+    select l.amount, l.owner_id, l.cancelled_at, l.currency_code
+      into v_loan_amount, v_loan_owner, v_loan_cancelled_at, v_loan_currency
+      from public.loans_taken l
+     where l.id = new.loan_id
+       and l.owner_id = new.owner_id
+     for update;
+
+    if not found then
+      raise exception 'Loan not found' using errcode = '22023';
+    end if;
+    if v_loan_cancelled_at is not null then
+      raise exception 'Loan is cancelled' using errcode = '22023';
+    end if;
+
+    select a.currency_code
+      into v_account_currency
+      from public.accounts a
+     where a.id = new.source_account_id
+       and a.owner_id = v_loan_owner;
+
+    if not found then
+      raise exception 'Account not found' using errcode = '22023';
+    end if;
+    if v_account_currency is distinct from v_loan_currency then
+      raise exception 'Repayment currency does not match the loan currency'
+        using errcode = '22023';
+    end if;
+
+    select coalesce(sum(r.amount), 0)
+      into v_total
+      from public.loan_taken_repayments r
+     where r.loan_id = new.loan_id
+       and r.cancelled_at is null
+       and (tg_op <> 'UPDATE' or r.id <> new.id);
+  end if;
+
+  if new.cancelled_at is null and v_total + new.amount > v_loan_amount then
+    raise exception 'Repayment total exceeds the loan amount'
+      using errcode = '22023';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_repayment_limit()
+  from public, anon, authenticated;
+
+create trigger loan_given_repayments_limit
+  before insert or update on public.loan_given_repayments
+  for each row execute function public.enforce_repayment_limit();
+create trigger loan_taken_repayments_limit
+  before insert or update on public.loan_taken_repayments
+  for each row execute function public.enforce_repayment_limit();
