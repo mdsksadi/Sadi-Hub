@@ -65,3 +65,57 @@ create table public.post_tags (
 
 create index post_tags_tag_idx on public.post_tags (tag_id, post_id);
 
+-- ---------------------------------------------------------------------------
+-- Scheduled publishing. The caller still goes through RLS and the owner gate.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.publish_scheduled_posts()
+returns table (id uuid, slug text)
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.require_owner();
+
+  return query
+    update public.posts p
+       set status = 'published',
+           published_at = now(),
+           updated_at = now()
+     where p.owner_id = (select auth.uid())
+       and p.status = 'scheduled'
+       and p.deleted_at is null
+       and p.scheduled_for <= now()
+    returning p.id, p.slug;
+end;
+$$;
+
+revoke all on function public.publish_scheduled_posts() from public, anon;
+grant execute on function public.publish_scheduled_posts() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Triggers. post_tags intentionally has no audit trigger: audit_mutation()
+-- expects a single `id` column, while post_tags uses a composite key.
+-- ---------------------------------------------------------------------------
+
+create trigger blog_categories_set_updated_at
+  before update on public.blog_categories
+  for each row execute function public.set_updated_at();
+create trigger blog_tags_set_updated_at
+  before update on public.blog_tags
+  for each row execute function public.set_updated_at();
+create trigger posts_set_updated_at
+  before update on public.posts
+  for each row execute function public.set_updated_at();
+
+create trigger blog_categories_audit
+  after insert or update or delete on public.blog_categories
+  for each row execute function public.audit_mutation();
+create trigger blog_tags_audit
+  after insert or update or delete on public.blog_tags
+  for each row execute function public.audit_mutation();
+create trigger posts_audit
+  after insert or update or delete on public.posts
+  for each row execute function public.audit_mutation();
+
