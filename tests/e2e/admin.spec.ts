@@ -31,3 +31,26 @@ test("MFA setup is not publicly accessible without a session", async ({
   await page.goto("/mfa/setup");
   await expect(page).toHaveURL(/\/admin\/login/);
 });
+
+test("finance pages are private and never cached", async ({ request }) => {
+  const paths = [
+    "/admin/finance",
+    "/admin/finance/accounts",
+    "/admin/finance/categories",
+    "/admin/finance/transactions",
+    "/admin/finance/transfers",
+    "/admin/finance/contacts",
+    "/admin/finance/contacts/00000000-0000-4000-8000-000000000011",
+    "/admin/finance/lending",
+    "/admin/finance/borrowing",
+    "/admin/finance/donations",
+    "/admin/finance/reports",
+    "/admin/finance/rates",
+  ];
+
+  for (const path of paths) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect([302, 307]).toContain(response.status());
+    expect(response.headers()["cache-control"]).toContain("no-store");
+  }
+});
