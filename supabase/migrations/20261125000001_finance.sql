@@ -579,3 +579,178 @@ grant execute on function public.create_expense(uuid, numeric, date, uuid, text,
 grant execute on function public.create_transfer(uuid, uuid, numeric, numeric, numeric, numeric, date, text, text)
   to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- Triggers
+-- ---------------------------------------------------------------------------
+
+create trigger accounts_set_updated_at
+  before update on public.accounts
+  for each row execute function public.set_updated_at();
+create trigger finance_categories_set_updated_at
+  before update on public.finance_categories
+  for each row execute function public.set_updated_at();
+create trigger account_transfers_set_updated_at
+  before update on public.account_transfers
+  for each row execute function public.set_updated_at();
+
+create trigger accounts_audit
+  after insert or update or delete on public.accounts
+  for each row execute function public.audit_mutation();
+create trigger finance_categories_audit
+  after insert or update or delete on public.finance_categories
+  for each row execute function public.audit_mutation();
+create trigger financial_transactions_audit
+  after insert on public.financial_transactions
+  for each row execute function public.audit_mutation();
+create trigger account_transfers_audit
+  after insert or update or delete on public.account_transfers
+  for each row execute function public.audit_mutation();
+
+-- ---------------------------------------------------------------------------
+-- RLS. The ledger is append-only for clients: SELECT and INSERT policies only,
+-- no UPDATE/DELETE policies or grants.
+-- ---------------------------------------------------------------------------
+
+alter table public.accounts enable row level security;
+alter table public.finance_categories enable row level security;
+alter table public.financial_transactions enable row level security;
+alter table public.account_transfers enable row level security;
+
+create policy accounts_owner_all on public.accounts
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy finance_categories_owner_all on public.finance_categories
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy financial_transactions_owner_select on public.financial_transactions
+  for select to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy financial_transactions_owner_insert on public.financial_transactions
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+create policy account_transfers_owner_all on public.account_transfers
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+
+revoke all on public.accounts, public.finance_categories,
+  public.financial_transactions, public.account_transfers from public, anon;
+
+grant select, insert, update, delete on public.accounts,
+  public.finance_categories, public.account_transfers to authenticated;
+grant select, insert on public.financial_transactions to authenticated;
+revoke update, delete on public.financial_transactions from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Computed views. security_invoker keeps each reader's RLS in force.
+-- ---------------------------------------------------------------------------
+
+create or replace view public.account_balances_v
+with (security_invoker = true) as
+select
+  a.owner_id,
+  a.id as account_id,
+  a.name,
+  a.currency_code,
+  a.opening_balance,
+  coalesce(sum(t.direction::numeric * t.amount), 0)::numeric(18, 4) as ledger_balance,
+  (a.opening_balance + coalesce(sum(t.direction::numeric * t.amount), 0))::numeric(18, 4) as balance
+from public.accounts a
+left join public.financial_transactions t
+  on t.account_id = a.id
+ and t.owner_id = a.owner_id
+group by a.owner_id, a.id, a.name, a.currency_code, a.opening_balance;
+
+-- Transfers and loan principal movements do not belong in income/expense.
+-- Donation corrections do: a reversal is a refund and an adjustment is an
+-- additional expense, so every included row is classified by its direction.
+create or replace view public.monthly_cashflow_v
+with (security_invoker = true) as
+select
+  t.owner_id,
+  to_char(t.business_date, 'YYYY-MM') as month,
+  a.country_code,
+  t.currency_code,
+  t.reporting_currency,
+  coalesce(sum(case when t.direction > 0 then t.amount else 0 end), 0)::numeric(18, 4) as income_amount,
+  coalesce(sum(case when t.direction < 0 then t.amount else 0 end), 0)::numeric(18, 4) as expense_amount,
+  coalesce(sum(t.direction::numeric * t.amount), 0)::numeric(18, 4) as net_amount,
+  coalesce(sum(case when t.direction > 0 then t.amount_reporting else 0 end), 0)::numeric(18, 4) as income_reporting,
+  coalesce(sum(case when t.direction < 0 then t.amount_reporting else 0 end), 0)::numeric(18, 4) as expense_reporting,
+  coalesce(sum(t.direction::numeric * t.amount_reporting), 0)::numeric(18, 4) as net_reporting
+from public.financial_transactions t
+join public.accounts a
+  on a.id = t.account_id
+ and a.owner_id = t.owner_id
+where t.transaction_type in ('income', 'expense', 'donation', 'correction', 'reversal')
+group by
+  t.owner_id,
+  to_char(t.business_date, 'YYYY-MM'),
+  a.country_code,
+  t.currency_code,
+  t.reporting_currency;
+
+revoke all on public.account_balances_v, public.monthly_cashflow_v from public, anon;
+grant select on public.account_balances_v, public.monthly_cashflow_v to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Seed categories for owners provisioned before this migration and for every
+-- owner profile created afterwards.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.seed_finance_categories()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.finance_categories (owner_id, name, kind)
+  select new.id, c.name, c.kind
+  from (values
+    ('Salary', 'income'),
+    ('Freelance', 'income'),
+    ('Gift', 'income'),
+    ('Other income', 'income'),
+    ('Food', 'expense'),
+    ('Housing', 'expense'),
+    ('Transport', 'expense'),
+    ('Health', 'expense'),
+    ('Education', 'expense'),
+    ('Other expense', 'expense')
+  ) as c(name, kind)
+  on conflict (owner_id, kind, name) do nothing;
+  return new;
+end;
+$$;
+
+revoke all on function public.seed_finance_categories()
+  from public, anon, authenticated;
+
+create trigger profiles_seed_finance_categories
+  after insert on public.profiles
+  for each row execute function public.seed_finance_categories();
+
+insert into public.finance_categories (owner_id, name, kind)
+select p.id, c.name, c.kind
+from public.profiles p
+cross join (values
+  ('Salary', 'income'),
+  ('Freelance', 'income'),
+  ('Gift', 'income'),
+  ('Other income', 'income'),
+  ('Food', 'expense'),
+  ('Housing', 'expense'),
+  ('Transport', 'expense'),
+  ('Health', 'expense'),
+  ('Education', 'expense'),
+  ('Other expense', 'expense')
+) as c(name, kind)
+where p.role = 'owner'
+on conflict (owner_id, kind, name) do nothing;
