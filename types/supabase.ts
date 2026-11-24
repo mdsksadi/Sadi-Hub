@@ -1,6 +1,6 @@
 /**
- * Minimal hand-maintained shape for Phases 1–2. CI regenerates this file with
- * `supabase gen types typescript --local` after migrations are applied.
+ * Hand-maintained shape for Phases 1–6. CI applies the migrations and
+ * smoke-checks the schema and grants instead of regenerating this file.
  */
 export type Json =
   | string
@@ -307,6 +307,317 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      contacts: {
+        Row: Owned &
+          Timestamps & {
+            full_name: string;
+            contact_type: "individual" | "organization";
+            phone: string | null;
+            email: string | null;
+            address: string | null;
+            country_code: string | null;
+            notes: string | null;
+            archived_at: string | null;
+          };
+        Insert: Partial<Database["public"]["Tables"]["contacts"]["Row"]> & {
+          owner_id: string;
+          full_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["contacts"]["Row"]>;
+        Relationships: [];
+      };
+      accounts: {
+        Row: Owned &
+          Timestamps & {
+            name: string;
+            country_code: string | null;
+            currency_code: string;
+            account_type: "bank" | "savings" | "cash" | "mobile_money" | "other";
+            opening_balance: number;
+            opening_date: string | null;
+            description: string | null;
+            is_active: boolean;
+          };
+        Insert: Partial<Database["public"]["Tables"]["accounts"]["Row"]> & {
+          owner_id: string;
+          name: string;
+          currency_code: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["accounts"]["Row"]>;
+        Relationships: [];
+      };
+      finance_categories: {
+        Row: Owned &
+          Timestamps & {
+            name: string;
+            kind: "income" | "expense";
+            parent_id: string | null;
+            icon: string | null;
+            is_active: boolean;
+          };
+        Insert: Partial<
+          Database["public"]["Tables"]["finance_categories"]["Row"]
+        > & { owner_id: string; name: string; kind: "income" | "expense" };
+        Update: Partial<
+          Database["public"]["Tables"]["finance_categories"]["Row"]
+        >;
+        Relationships: [];
+      };
+      financial_transactions: {
+        Row: Owned & {
+          account_id: string;
+          transaction_type:
+            | "income"
+            | "expense"
+            | "transfer_out"
+            | "transfer_in"
+            | "loan_disbursed"
+            | "loan_repayment_received"
+            | "borrowing_received"
+            | "borrowing_repayment_paid"
+            | "donation"
+            | "correction"
+            | "reversal";
+          direction: -1 | 1;
+          amount: number;
+          currency_code: string;
+          business_date: string;
+          category_id: string | null;
+          transfer_id: string | null;
+          reference_type: string | null;
+          reference_id: string | null;
+          description: string | null;
+          notes: string | null;
+          attachment_path: string | null;
+          reverses_transaction_id: string | null;
+          is_reversal: boolean;
+          exchange_rate_to_reporting: number;
+          reporting_currency: string;
+          amount_reporting: number;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["financial_transactions"]["Row"]
+        > & {
+          owner_id: string;
+          account_id: string;
+          transaction_type: Database["public"]["Tables"]["financial_transactions"]["Row"]["transaction_type"];
+          direction: -1 | 1;
+          amount: number;
+          currency_code: string;
+          business_date: string;
+          exchange_rate_to_reporting: number;
+          reporting_currency: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      account_transfers: {
+        Row: Owned &
+          Timestamps & {
+            source_account_id: string;
+            destination_account_id: string;
+            source_amount: number;
+            source_currency: string;
+            destination_amount: number;
+            destination_currency: string;
+            exchange_rate: number;
+            fee_amount: number;
+            transfer_date: string;
+            reference_number: string | null;
+            notes: string | null;
+            out_ledger_id: string | null;
+            in_ledger_id: string | null;
+            fee_ledger_id: string | null;
+          };
+        Insert: Partial<
+          Database["public"]["Tables"]["account_transfers"]["Row"]
+        > & {
+          owner_id: string;
+          source_account_id: string;
+          destination_account_id: string;
+          source_amount: number;
+          source_currency: string;
+          destination_amount: number;
+          destination_currency: string;
+          exchange_rate: number;
+          transfer_date: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["account_transfers"]["Row"]
+        >;
+        Relationships: [];
+      };
+      loans_given: {
+        Row: Owned &
+          Timestamps & {
+            contact_id: string;
+            amount: number;
+            currency_code: string;
+            date_given: string;
+            reason: string | null;
+            payment_method: string | null;
+            source_account_id: string;
+            expected_repayment_date: string | null;
+            reference_number: string | null;
+            notes: string | null;
+            cancelled_at: string | null;
+            disbursement_ledger_id: string | null;
+          };
+        Insert: Partial<Database["public"]["Tables"]["loans_given"]["Row"]> & {
+          owner_id: string;
+          contact_id: string;
+          amount: number;
+          currency_code: string;
+          date_given: string;
+          source_account_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["loans_given"]["Row"]>;
+        Relationships: [];
+      };
+      loan_given_repayments: {
+        Row: Owned & {
+          loan_id: string;
+          amount: number;
+          repayment_date: string;
+          receiving_account_id: string;
+          payment_method: string | null;
+          reference_number: string | null;
+          notes: string | null;
+          ledger_transaction_id: string | null;
+          cancelled_at: string | null;
+          created_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["loan_given_repayments"]["Row"]
+        > & {
+          owner_id: string;
+          loan_id: string;
+          amount: number;
+          repayment_date: string;
+          receiving_account_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      loans_taken: {
+        Row: Owned &
+          Timestamps & {
+            lender_contact_id: string;
+            amount: number;
+            currency_code: string;
+            date_borrowed: string;
+            reason: string | null;
+            expected_repayment_date: string | null;
+            receiving_account_id: string;
+            agreement_details: string | null;
+            notes: string | null;
+            cancelled_at: string | null;
+            receipt_ledger_id: string | null;
+          };
+        Insert: Partial<Database["public"]["Tables"]["loans_taken"]["Row"]> & {
+          owner_id: string;
+          lender_contact_id: string;
+          amount: number;
+          currency_code: string;
+          date_borrowed: string;
+          receiving_account_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["loans_taken"]["Row"]>;
+        Relationships: [];
+      };
+      loan_taken_repayments: {
+        Row: Owned & {
+          loan_id: string;
+          amount: number;
+          payment_date: string;
+          source_account_id: string;
+          payment_method: string | null;
+          reference_number: string | null;
+          notes: string | null;
+          ledger_transaction_id: string | null;
+          cancelled_at: string | null;
+          created_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["loan_taken_repayments"]["Row"]
+        > & {
+          owner_id: string;
+          loan_id: string;
+          amount: number;
+          payment_date: string;
+          source_account_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      donation_categories: {
+        Row: Owned &
+          Timestamps & {
+            name: string;
+            slug: string;
+          };
+        Insert: Partial<
+          Database["public"]["Tables"]["donation_categories"]["Row"]
+        > & { owner_id: string; name: string; slug: string };
+        Update: Partial<
+          Database["public"]["Tables"]["donation_categories"]["Row"]
+        >;
+        Relationships: [];
+      };
+      donations: {
+        Row: Owned & {
+          contact_id: string | null;
+          recipient_name: string;
+          recipient_type: "individual" | "organization";
+          amount: number;
+          currency_code: string;
+          donation_date: string;
+          purpose: string | null;
+          category_id: string | null;
+          country_code: string | null;
+          source_account_id: string;
+          payment_method: string | null;
+          reference_number: string | null;
+          notes: string | null;
+          ledger_transaction_id: string | null;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["donations"]["Row"]> & {
+          owner_id: string;
+          recipient_name: string;
+          recipient_type: "individual" | "organization";
+          amount: number;
+          currency_code: string;
+          donation_date: string;
+          source_account_id: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      donation_corrections: {
+        Row: Owned & {
+          donation_id: string;
+          correction_type: "reversal" | "adjustment";
+          amount: number;
+          reason: string;
+          ledger_transaction_id: string | null;
+          created_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["donation_corrections"]["Row"]
+        > & {
+          owner_id: string;
+          donation_id: string;
+          correction_type: "reversal" | "adjustment";
+          amount: number;
+          reason: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: {
       public_profiles_v: {
@@ -321,6 +632,93 @@ export type Database = {
           timezone: string;
           created_at: string;
           updated_at: string;
+        };
+        Relationships: [];
+      };
+      account_balances_v: {
+        Row: {
+          owner_id: string;
+          account_id: string;
+          name: string;
+          currency_code: string;
+          opening_balance: number;
+          ledger_balance: number;
+          balance: number;
+        };
+        Relationships: [];
+      };
+      monthly_cashflow_v: {
+        Row: {
+          owner_id: string;
+          month: string;
+          country_code: string | null;
+          currency_code: string;
+          reporting_currency: string;
+          income_amount: number;
+          expense_amount: number;
+          net_amount: number;
+          income_reporting: number;
+          expense_reporting: number;
+          net_reporting: number;
+        };
+        Relationships: [];
+      };
+      loans_given_status_v: {
+        Row: Database["public"]["Tables"]["loans_given"]["Row"] & {
+          total_repaid: number;
+          outstanding: number;
+          status:
+            | "Cancelled"
+            | "Fully Repaid"
+            | "Partially Repaid"
+            | "Overdue"
+            | "Pending";
+        };
+        Relationships: [];
+      };
+      loans_taken_status_v: {
+        Row: Database["public"]["Tables"]["loans_taken"]["Row"] & {
+          total_repaid: number;
+          outstanding: number;
+          status:
+            | "Cancelled"
+            | "Fully Repaid"
+            | "Partially Repaid"
+            | "Overdue"
+            | "Active";
+        };
+        Relationships: [];
+      };
+      contact_lending_summary_v: {
+        Row: {
+          owner_id: string;
+          contact_id: string;
+          full_name: string;
+          contact_type: "individual" | "organization";
+          currency_code: string;
+          lent_amount: number;
+          repaid_amount: number;
+          outstanding_amount: number;
+          overdue_amount: number;
+          loan_count: number;
+          first_date: string;
+          last_date: string;
+        };
+        Relationships: [];
+      };
+      contact_donation_summary_v: {
+        Row: {
+          owner_id: string;
+          recipient_key: string;
+          contact_id: string | null;
+          recipient_name: string;
+          recipient_type: "individual" | "organization";
+          currency_code: string;
+          country_code: string | null;
+          total_amount: number;
+          donation_count: number;
+          first_date: string;
+          last_date: string;
         };
         Relationships: [];
       };
@@ -342,6 +740,132 @@ export type Database = {
         Args: Record<string, never>;
         Returns: Array<{ id: string; slug: string }>;
       };
+      resolve_reporting_rate: {
+        Args: {
+          p_currency_code: string;
+          p_reporting_currency: string;
+          p_business_date: string;
+        };
+        Returns: number;
+      };
+      create_income: {
+        Args: {
+          p_account_id: string;
+          p_amount: string;
+          p_business_date: string;
+          p_category_id: string | null;
+          p_description: string | null;
+          p_notes: string | null;
+          p_reference_number: string | null;
+        };
+        Returns: string;
+      };
+      create_expense: {
+        Args: {
+          p_account_id: string;
+          p_amount: string;
+          p_business_date: string;
+          p_category_id: string | null;
+          p_description: string | null;
+          p_notes: string | null;
+          p_reference_number: string | null;
+        };
+        Returns: string;
+      };
+      create_transfer: {
+        Args: {
+          p_source_account_id: string;
+          p_destination_account_id: string;
+          p_source_amount: string;
+          p_destination_amount: string;
+          p_exchange_rate: string;
+          p_fee_amount: string;
+          p_transfer_date: string;
+          p_reference_number: string | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      create_loan_given: {
+        Args: {
+          p_contact_id: string;
+          p_amount: string;
+          p_currency_code: string;
+          p_date_given: string;
+          p_source_account_id: string;
+          p_expected_repayment_date?: string | null;
+          p_reason?: string | null;
+          p_payment_method?: string | null;
+          p_reference_number?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      record_loan_given_repayment: {
+        Args: {
+          p_loan_id: string;
+          p_amount: string;
+          p_repayment_date: string;
+          p_receiving_account_id: string;
+          p_payment_method?: string | null;
+          p_reference_number?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      create_loan_taken: {
+        Args: {
+          p_lender_contact_id: string;
+          p_amount: string;
+          p_currency_code: string;
+          p_date_borrowed: string;
+          p_receiving_account_id: string;
+          p_expected_repayment_date?: string | null;
+          p_reason?: string | null;
+          p_agreement_details?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      record_loan_taken_repayment: {
+        Args: {
+          p_loan_id: string;
+          p_amount: string;
+          p_payment_date: string;
+          p_source_account_id: string;
+          p_payment_method?: string | null;
+          p_reference_number?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      create_donation: {
+        Args: {
+          p_contact_id?: string | null;
+          p_recipient_name?: string | null;
+          p_recipient_type?: string | null;
+          p_amount?: string | null;
+          p_currency_code?: string | null;
+          p_donation_date?: string | null;
+          p_source_account_id?: string | null;
+          p_purpose?: string | null;
+          p_category_id?: string | null;
+          p_country_code?: string | null;
+          p_payment_method?: string | null;
+          p_reference_number?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      correct_donation: {
+        Args: {
+          p_donation_id: string;
+          p_correction_type: string;
+          p_amount: string;
+          p_reason: string;
+        };
+        Returns: string;
+      };
     };
     Enums: Record<string, never>;
   };
@@ -360,6 +884,40 @@ export type BlogTag = Database["public"]["Tables"]["blog_tags"]["Row"];
 export type Post = Database["public"]["Tables"]["posts"]["Row"];
 export type PostTag = Database["public"]["Tables"]["post_tags"]["Row"];
 export type PostStatus = Post["status"];
+
+export type Contact = Database["public"]["Tables"]["contacts"]["Row"];
+export type Account = Database["public"]["Tables"]["accounts"]["Row"];
+export type FinanceCategory =
+  Database["public"]["Tables"]["finance_categories"]["Row"];
+export type FinancialTransaction =
+  Database["public"]["Tables"]["financial_transactions"]["Row"];
+export type LedgerTransactionType =
+  FinancialTransaction["transaction_type"];
+export type AccountTransfer =
+  Database["public"]["Tables"]["account_transfers"]["Row"];
+export type AccountBalance =
+  Database["public"]["Views"]["account_balances_v"]["Row"];
+export type MonthlyCashflow =
+  Database["public"]["Views"]["monthly_cashflow_v"]["Row"];
+export type LoanGiven = Database["public"]["Tables"]["loans_given"]["Row"];
+export type LoanGivenRepayment =
+  Database["public"]["Tables"]["loan_given_repayments"]["Row"];
+export type LoanTaken = Database["public"]["Tables"]["loans_taken"]["Row"];
+export type LoanTakenRepayment =
+  Database["public"]["Tables"]["loan_taken_repayments"]["Row"];
+export type LoanGivenStatus =
+  Database["public"]["Views"]["loans_given_status_v"]["Row"];
+export type LoanTakenStatus =
+  Database["public"]["Views"]["loans_taken_status_v"]["Row"];
+export type ContactLendingSummary =
+  Database["public"]["Views"]["contact_lending_summary_v"]["Row"];
+export type DonationCategory =
+  Database["public"]["Tables"]["donation_categories"]["Row"];
+export type Donation = Database["public"]["Tables"]["donations"]["Row"];
+export type DonationCorrection =
+  Database["public"]["Tables"]["donation_corrections"]["Row"];
+export type ContactDonationSummary =
+  Database["public"]["Views"]["contact_donation_summary_v"]["Row"];
 
 /** Post plus the nested relations used by the public detail page. */
 export type PostDetail = Post & {
