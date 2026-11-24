@@ -117,3 +117,169 @@ create index account_transfers_owner_destination_idx
 alter table public.financial_transactions
   add constraint financial_transactions_transfer_fk
   foreign key (transfer_id) references public.account_transfers (id) on delete set null;
+
+-- ---------------------------------------------------------------------------
+-- Reporting rates. Historical translations must use a rate snapshotted on or
+-- before the business date; no live FX lookups are ever made.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.resolve_reporting_rate(
+  p_currency_code char(3),
+  p_reporting_currency char(3),
+  p_business_date date
+) returns numeric(18, 8)
+language plpgsql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_rate numeric(18, 8);
+begin
+  if p_currency_code = p_reporting_currency then
+    return 1;
+  end if;
+
+  select er.rate
+    into v_rate
+    from public.exchange_rates er
+   where er.from_currency = p_currency_code
+     and er.to_currency = p_reporting_currency
+     and er.effective_date <= p_business_date
+   order by er.effective_date desc
+   limit 1;
+
+  if v_rate is not null then
+    return v_rate;
+  end if;
+
+  select er.rate
+    into v_rate
+    from public.exchange_rates er
+   where er.from_currency = p_reporting_currency
+     and er.to_currency = p_currency_code
+     and er.effective_date <= p_business_date
+   order by er.effective_date desc
+   limit 1;
+
+  if v_rate is not null then
+    return round(1 / v_rate, 8);
+  end if;
+
+  raise exception 'No snapshotted exchange rate for % to % on %',
+    p_currency_code, p_reporting_currency, p_business_date
+    using errcode = '22023';
+end;
+$$;
+
+revoke all on function public.resolve_reporting_rate(character, character, date)
+  from public, anon;
+grant execute on function public.resolve_reporting_rate(character, character, date)
+  to authenticated;
+
+-- The one canonical ledger writer. Lending, borrowing and donations call this
+-- exact signature in later migrations; do not change the argument list.
+create or replace function public.record_ledger_movement(
+  p_owner_id uuid,
+  p_account_id uuid,
+  p_transaction_type text,
+  p_direction smallint,
+  p_amount numeric,
+  p_business_date date,
+  p_category_id uuid,
+  p_transfer_id uuid,
+  p_reference_type text,
+  p_reference_id uuid,
+  p_description text,
+  p_notes text,
+  p_reverses_transaction_id uuid
+) returns uuid
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_currency_code char(3);
+  v_reporting_currency char(3);
+  v_rate numeric(18, 8);
+  v_ledger_id uuid;
+begin
+  if p_owner_id is distinct from (select auth.uid()) then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+  perform public.require_owner();
+
+  select a.currency_code
+    into v_currency_code
+    from public.accounts a
+   where a.id = p_account_id
+     and a.owner_id = p_owner_id;
+  if not found then
+    raise exception 'Account not found' using errcode = '22023';
+  end if;
+
+  select s.reporting_currency
+    into v_reporting_currency
+    from public.user_settings s
+   where s.user_id = p_owner_id;
+  if v_reporting_currency is null then
+    v_reporting_currency := 'EUR'::char(3);
+  end if;
+
+  v_rate := public.resolve_reporting_rate(
+    v_currency_code, v_reporting_currency, p_business_date
+  );
+
+  insert into public.financial_transactions (
+    owner_id,
+    account_id,
+    transaction_type,
+    direction,
+    amount,
+    currency_code,
+    business_date,
+    category_id,
+    transfer_id,
+    reference_type,
+    reference_id,
+    description,
+    notes,
+    reverses_transaction_id,
+    is_reversal,
+    exchange_rate_to_reporting,
+    reporting_currency,
+    amount_reporting,
+    created_by
+  ) values (
+    p_owner_id,
+    p_account_id,
+    p_transaction_type,
+    p_direction,
+    p_amount,
+    v_currency_code,
+    p_business_date,
+    p_category_id,
+    p_transfer_id,
+    p_reference_type,
+    p_reference_id,
+    p_description,
+    p_notes,
+    p_reverses_transaction_id,
+    p_reverses_transaction_id is not null,
+    v_rate,
+    v_reporting_currency,
+    round(p_amount * v_rate, 4),
+    auth.uid()
+  )
+  returning id into v_ledger_id;
+
+  return v_ledger_id;
+end;
+$$;
+
+revoke all on function public.record_ledger_movement(
+  uuid, uuid, text, smallint, numeric, date, uuid, uuid, text, uuid, text, text, uuid
+) from public, anon;
+grant execute on function public.record_ledger_movement(
+  uuid, uuid, text, smallint, numeric, date, uuid, uuid, text, uuid, text, text, uuid
+) to authenticated;
