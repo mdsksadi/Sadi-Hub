@@ -229,4 +229,43 @@ where p.owner_id = '00000000-0000-4000-8000-000000000001'
   and t.slug in ('nextjs', 'supabase', 'security')
 on conflict do nothing;
 
+-- Local finance/lending/donations fixtures. Financial movements are created
+-- through the app RPCs; the seed only provides the reference rows and the
+-- inverse snapshot rate needed to translate BDT amounts into the EUR report.
+insert into public.exchange_rates (from_currency, to_currency, rate, effective_date, source)
+values ('BDT', 'EUR', 0.00833333, date '2026-01-01', 'Inverse placeholder local seed rate')
+on conflict (from_currency, to_currency, effective_date) do nothing;
+
+insert into public.accounts (
+  owner_id, name, country_code, currency_code, account_type,
+  opening_balance, opening_date, is_active
+)
+values
+  ('00000000-0000-4000-8000-000000000001', 'EUR checking', 'DE', 'EUR', 'bank', 1000, date '2026-01-01', true),
+  ('00000000-0000-4000-8000-000000000001', 'BDT wallet', 'BD', 'BDT', 'mobile_money', 20000, date '2026-01-01', true)
+on conflict (owner_id, name) do nothing;
+
+insert into public.finance_categories (owner_id, name, kind, is_active)
+select '00000000-0000-4000-8000-000000000001'::uuid, v.name, v.kind, true
+from (values
+  ('Salary'::text, 'income'::text),
+  ('Freelance', 'income'),
+  ('Food', 'expense'),
+  ('Housing', 'expense')
+) as v(name, kind)
+where not exists (
+  select 1 from public.finance_categories fc
+  where fc.owner_id = '00000000-0000-4000-8000-000000000001'
+    and fc.name = v.name
+    and fc.kind = v.kind
+);
+
+insert into public.contacts (
+  id, owner_id, full_name, contact_type, phone, email, country_code
+)
+values
+  ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', 'Example Foundation', 'organization', '+8801000000001', 'hello@example.org', 'BD'),
+  ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 'Example Friend', 'individual', '+8801000000002', 'friend@example.org', 'BD')
+on conflict (id) do nothing;
+
 commit;
