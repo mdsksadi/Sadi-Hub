@@ -1,6 +1,6 @@
 # Sadi-Hub — Architecture, Database, Security & Delivery Plan
 
-Status: **PLAN ONLY — awaiting approval. No application code has been written.**
+Status: **IMPLEMENTED through Phase 6 (Donations).** Phases 7–8 remain. The original plan is retained below as the architecture and acceptance reference.
 
 Repository: `/home/vmdev/sadi/Sadi-Hub` (empty Git repo, remote `https://github.com/mdsksadi/Sadi-Hub.git`)
 
@@ -215,9 +215,9 @@ cash (all accounts)
 Not added again: donation amounts (already expenses), loan principal cash movements (already in cash/receivable), transfer legs (net zero), historical purchase prices (superseded by estimated value).
 
 Income/expense classification for reports:
-- **Income:** `income`
-- **Expense:** `expense`, `donation`
-- **Cash-only / neutral:** `transfer_out`, `transfer_in`, `loan_disbursed`, `loan_repayment_received`, `borrowing_received`, `borrowing_repayment_paid`, `correction`, `reversal`
+- **Income:** `income`, donation `reversal` refunds
+- **Expense:** `expense`, `donation`, donation `correction` adjustments
+- **Cash-only / neutral:** `transfer_out`, `transfer_in`, `loan_disbursed`, `loan_repayment_received`, `borrowing_received`, `borrowing_repayment_paid`
 
 ### 3.4 Atomic RPC functions (all `SECURITY INVOKER`, so RLS applies)
 
@@ -480,4 +480,4 @@ Everything else I have decided as follows and documented above: single-owner RLS
 
 ## 12. Status
 
-**No code, migrations, or commits have been created.** Awaiting your approval of this plan.
+Phases 0–6 (bootstrap through Donations) are implemented in this repository. Property, documents, backup tooling and finalization (Phases 7–8) remain. See [`README.md`](../README.md) for the current implementation status.
