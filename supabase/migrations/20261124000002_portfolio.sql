@@ -127,3 +127,45 @@ create table public.social_links (
     check (url ~* '^(https?://|mailto:)')
 );
 
+-- ---------------------------------------------------------------------------
+-- Triggers
+-- ---------------------------------------------------------------------------
+
+create trigger portfolio_projects_set_updated_at
+  before update on public.portfolio_projects
+  for each row execute function public.set_updated_at();
+create trigger experiences_set_updated_at
+  before update on public.experiences
+  for each row execute function public.set_updated_at();
+create trigger education_set_updated_at
+  before update on public.education
+  for each row execute function public.set_updated_at();
+create trigger skills_set_updated_at
+  before update on public.skills
+  for each row execute function public.set_updated_at();
+create trigger certifications_set_updated_at
+  before update on public.certifications
+  for each row execute function public.set_updated_at();
+create trigger social_links_set_updated_at
+  before update on public.social_links
+  for each row execute function public.set_updated_at();
+
+create trigger portfolio_projects_audit
+  after insert or update or delete on public.portfolio_projects
+  for each row execute function public.audit_mutation();
+create trigger experiences_audit
+  after insert or update or delete on public.experiences
+  for each row execute function public.audit_mutation();
+create trigger education_audit
+  after insert or update or delete on public.education
+  for each row execute function public.audit_mutation();
+create trigger skills_audit
+  after insert or update or delete on public.skills
+  for each row execute function public.audit_mutation();
+create trigger certifications_audit
+  after insert or update or delete on public.certifications
+  for each row execute function public.audit_mutation();
+create trigger social_links_audit
+  after insert or update or delete on public.social_links
+  for each row execute function public.audit_mutation();
+
