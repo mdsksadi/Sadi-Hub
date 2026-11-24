@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "26"
+  # NEXT_PUBLIC_* values are inlined at build time. CI uses harmless placeholders
+  # so builds and client-asset scans run without real credentials.
+  NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+  NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-publishable-key-0123456789
+
+jobs:
+  app:
+    name: App checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and component tests
+        run: npm test
+
+      - name: Build Next.js app
+        run: npm run build
+
+      - name: E2E smoke tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Build Cloudflare Worker
+        run: npm run cf:build
+
+      - name: Check Worker size
+        run: npm run check:size
+
+      - name: Check client assets for secrets
+        run: npm run check:secrets
+        env:
+          # Canaries make the scanner fail if a build ever inlines a secret.
+          SUPABASE_SERVICE_ROLE_KEY: canary-service-role-key-0123456789
+          SUPABASE_DB_PASSWORD: canary-db-password-0123456789
+          CLOUDFLARE_API_TOKEN: canary-cloudflare-token-0123456789
+          BACKUP_ENCRYPTION_KEY: canary-backup-key-0123456789
+
+      - name: Dependency audit
+        # Advisories left in the pinned OpenNext adapter have no non-breaking fix.
+        run: npm audit --omit=dev --audit-level=critical
+
+  database:
+    name: Migration smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Apply migrations and local seed
+        run: supabase db reset
+
+      - name: Verify Phase 1–2 schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            t text;
+          begin
+            foreach t in array array[
+              'profiles', 'user_settings', 'audit_logs', 'currencies',
+              'exchange_rates', 'portfolio_projects', 'experiences',
+              'education', 'skills', 'certifications', 'social_links'
+            ]
+            loop
+              if to_regclass('public.' || t) is null then
+                raise exception 'Missing table public.%', t;
+              end if;
+
+              if not (
+                select relrowsecurity
+                from pg_class
+                where oid = ('public.' || t)::regclass
+              ) then
+                raise exception 'RLS is disabled on public.%', t;
+              end if;
+            end loop;
+
+            foreach t in array array[
+              'portfolio_projects', 'experiences', 'education',
+              'skills', 'certifications', 'social_links'
+            ]
+            loop
+              if not exists (
+                select 1
+                from pg_policies
+                where schemaname = 'public'
+                  and tablename = t
+                  and policyname = t || '_public_read'
+                  and qual like '%is_published%'
+                  and (t = 'social_links' or qual like '%deleted_at%')
+              ) then
+                raise exception 'Public read policy on % is not visibility-filtered', t;
+              end if;
+            end loop;
+
+            if to_regclass('public.public_profiles_v') is null then
+              raise exception 'Missing public.public_profiles_v';
+            end if;
+
+            if to_regprocedure('public.get_resume_path()') is null then
+              raise exception 'Missing public.get_resume_path()';
+            end if;
+
+            if exists (
+              select 1
+              from information_schema.columns
+              where table_schema = 'public'
+                and table_name = 'public_profiles_v'
+                and column_name in ('email', 'resume_path')
+            ) then
+              raise exception 'Public profile view exposes private identity fields';
+            end if;
+
+            if not has_table_privilege('anon', 'public.public_profiles_v', 'SELECT')
+              or not has_table_privilege('anon', 'public.portfolio_projects', 'SELECT')
+            then
+              raise exception 'Anonymous public reads are not granted';
+            end if;
+
+            if has_table_privilege('anon', 'public.profiles', 'SELECT')
+              or has_table_privilege('anon', 'public.portfolio_projects', 'INSERT')
+            then
+              raise exception 'Anonymous role has a private write/read grant';
+            end if;
+
+            if not has_table_privilege('authenticated', 'public.audit_logs', 'SELECT') then
+              raise exception 'Owner audit_logs SELECT grant is missing';
+            end if;
+
+            if not exists (
+              select 1
+              from pg_policies
+              where schemaname = 'storage'
+                and tablename = 'objects'
+                and policyname = 'resume_object_public_read'
+            ) then
+              raise exception 'Missing scoped resume storage policy';
+            end if;
+
+            if (select count(*) from public.profiles where role = 'owner') <> 1 then
+              raise exception 'Local seed must create exactly one owner';
+            end if;
+          end
+          $$;
+          SQL
