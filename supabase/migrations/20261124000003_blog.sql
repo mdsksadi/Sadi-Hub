@@ -119,3 +119,94 @@ create trigger posts_audit
   after insert or update or delete on public.posts
   for each row execute function public.audit_mutation();
 
+-- ---------------------------------------------------------------------------
+-- RLS: the owner has full control; anon/foreign users only see live posts and
+-- the taxonomies actually used by live posts.
+-- ---------------------------------------------------------------------------
+
+alter table public.blog_categories enable row level security;
+alter table public.blog_tags enable row level security;
+alter table public.posts enable row level security;
+alter table public.post_tags enable row level security;
+
+create policy blog_categories_owner_all on public.blog_categories
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy blog_categories_public_read on public.blog_categories
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.posts p
+      where p.category_id = public.blog_categories.id
+        and p.status = 'published'
+        and p.published_at <= now()
+        and p.deleted_at is null
+    )
+  );
+
+create policy blog_tags_owner_all on public.blog_tags
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy blog_tags_public_read on public.blog_tags
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.post_tags pt
+      join public.posts p on p.id = pt.post_id
+      where pt.tag_id = public.blog_tags.id
+        and p.status = 'published'
+        and p.published_at <= now()
+        and p.deleted_at is null
+    )
+  );
+
+create policy posts_owner_all on public.posts
+  for all to authenticated
+  using (owner_id = (select auth.uid()) and public.is_owner())
+  with check (owner_id = (select auth.uid()) and public.is_owner());
+create policy posts_public_read on public.posts
+  for select to anon, authenticated
+  using (
+    status = 'published'
+    and published_at <= now()
+    and deleted_at is null
+  );
+
+create policy post_tags_owner_all on public.post_tags
+  for all to authenticated
+  using (
+    exists (
+      select 1 from public.posts p
+      where p.id = public.post_tags.post_id
+        and p.owner_id = (select auth.uid())
+        and public.is_owner()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.posts p
+      where p.id = public.post_tags.post_id
+        and p.owner_id = (select auth.uid())
+        and public.is_owner()
+    )
+  );
+create policy post_tags_public_read on public.post_tags
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1 from public.posts p
+      where p.id = public.post_tags.post_id
+        and p.status = 'published'
+        and p.published_at <= now()
+        and p.deleted_at is null
+    )
+  );
+
+grant select on public.blog_categories, public.blog_tags, public.posts,
+  public.post_tags to anon, authenticated;
+grant insert, update, delete on public.blog_categories, public.blog_tags,
+  public.posts, public.post_tags to authenticated;
+revoke insert, update, delete on public.blog_categories, public.blog_tags,
+  public.posts, public.post_tags from anon;
