@@ -194,3 +194,54 @@ revoke update, delete on public.donations,
 grant select, insert, update, delete on public.donation_categories to authenticated;
 grant select, insert on public.donations to authenticated;
 grant select, insert on public.donation_corrections to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Recipient report. Corrections net against the original gift; each row stays
+-- separated by currency and country so EUR and BDT are never summed.
+-- ---------------------------------------------------------------------------
+
+create view public.contact_donation_summary_v
+with (security_invoker = true) as
+with correction_net as (
+  select
+    c.donation_id,
+    sum(case when c.correction_type = 'reversal' then -c.amount else c.amount end) as delta
+  from public.donation_corrections c
+  group by c.donation_id
+), gift_rows as (
+  select
+    d.owner_id,
+    case
+      when d.contact_id is null
+        then 'name:' || lower(regexp_replace(btrim(d.recipient_name), '[[:space:]]+', ' ', 'g'))
+      else 'contact:' || d.contact_id::text
+    end as recipient_key,
+    d.contact_id,
+    coalesce(c.full_name, d.recipient_name) as recipient_name,
+    coalesce(c.contact_type::text, d.recipient_type::text) as recipient_type,
+    d.currency_code,
+    coalesce(d.country_code, c.country_code) as country_code,
+    d.amount + coalesce(cn.delta, 0) as amount,
+    d.donation_date
+  from public.donations d
+  left join public.contacts c
+    on c.id = d.contact_id and c.owner_id = d.owner_id
+  left join correction_net cn on cn.donation_id = d.id
+)
+select
+  owner_id,
+  recipient_key,
+  contact_id,
+  max(recipient_name) as recipient_name,
+  max(recipient_type) as recipient_type,
+  currency_code,
+  country_code,
+  round(sum(amount), 4) as total_amount,
+  count(*)::bigint as donation_count,
+  min(donation_date) as first_date,
+  max(donation_date) as last_date
+from gift_rows
+group by owner_id, recipient_key, contact_id, currency_code, country_code;
+
+revoke all on public.contact_donation_summary_v from public, anon;
+grant select on public.contact_donation_summary_v to authenticated;
