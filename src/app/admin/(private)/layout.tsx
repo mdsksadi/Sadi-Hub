@@ -12,10 +12,23 @@ const links = [
   { href: "/admin/profile", label: "Profile" },
   { href: "/admin/portfolio", label: "Portfolio" },
   { href: "/admin/blog", label: "Blog" },
-  { href: "/admin/settings", label: "Settings & MFA" },
 ];
 
-const upcoming = ["Finance", "Property", "Documents", "Audit logs"];
+const financeLinks = [
+  { href: "/admin/finance", label: "Overview" },
+  { href: "/admin/finance/accounts", label: "Accounts" },
+  { href: "/admin/finance/categories", label: "Categories" },
+  { href: "/admin/finance/transactions", label: "Transactions" },
+  { href: "/admin/finance/transfers", label: "Transfers" },
+  { href: "/admin/finance/contacts", label: "Contacts" },
+  { href: "/admin/finance/lending", label: "Lending" },
+  { href: "/admin/finance/borrowing", label: "Borrowing" },
+  { href: "/admin/finance/donations", label: "Donations" },
+  { href: "/admin/finance/reports", label: "Reports" },
+  { href: "/admin/finance/rates", label: "Exchange rates" },
+];
+
+const upcoming = ["Property", "Documents", "Audit logs"];
 
 export default async function AdminLayout({
   children,
@@ -45,6 +58,34 @@ export default async function AdminLayout({
                 </Link>
               </li>
             ))}
+            <li className="pt-2">
+              <Link
+                href="/admin/finance"
+                className="hover:bg-muted block rounded-md px-3 py-2 font-medium"
+              >
+                Finance
+              </Link>
+              <ul className="ml-3 space-y-1 border-l pl-3">
+                {financeLinks.map((link) => (
+                  <li key={link.href}>
+                    <Link
+                      href={link.href}
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground block rounded-md px-2 py-1.5 text-xs"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </li>
+            <li>
+              <Link
+                href="/admin/settings"
+                className="text-muted-foreground hover:bg-muted hover:text-foreground block rounded-md px-3 py-2"
+              >
+                Settings &amp; MFA
+              </Link>
+            </li>
             {upcoming.map((label) => (
               <li key={label} className="text-muted-foreground/50 px-3 py-2">
                 {label} <span className="text-xs">(later)</span>
