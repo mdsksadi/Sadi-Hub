@@ -7,11 +7,11 @@ A single-owner personal hub built as a modular Next.js 16 application and deploy
 This repository implements **all phases (0–8) of [`docs/PLAN.md`](docs/PLAN.md)**:
 
 - [x] Next.js 16 / React 19 / TypeScript strict / Tailwind 4 bootstrap
-- [x] OpenNext Cloudflare build, R2 + Durable Object + D1 ISR cache configuration
+- [x] OpenNext Cloudflare build with dynamic rendering on free-tier bindings (no R2/D1/DO)
 - [x] Supabase migrations for identity, settings, audit data, currencies/rates and all portfolio tables
 - [x] Single-owner RLS, `public_profiles_v`, private/public storage buckets
 - [x] `getClaims()`-based authorization, `requireOwner()`, MFA-gated admin routes
-- [x] Public homepage, About, Experience, Education, Skills, Projects + detail, Blog, Resume, Contact
+- [x] Public navigation: Home, Blog, About (portfolio hub with Experience, Education, Skills, Projects + detail, Resume), Contact
 - [x] Admin dashboard, profile editing, uploads, MFA enrollment, portfolio CRUD
 - [x] Blog CMS: markdown editor, categories, tags, search, draft/publish/schedule, RSS and sitemap
 - [x] Finance core: accounts, categories, append-only ledger, income/expense/transfer RPCs, exchange-rate snapshots, balance and cashflow views
@@ -28,7 +28,7 @@ Production migration and Worker deployment remain operator actions because live 
 ## Architecture
 
 ```text
-src/app/(site)/*   public ISR pages (5-minute revalidate)
+src/app/(site)/*   public dynamic pages (rendered per request)
 src/app/admin/*    private dynamic pages, MFA + owner checks
 src/app/api/*      contact, resume and utility route handlers
 src/components/    presentational, form and chart components
@@ -107,7 +107,9 @@ Open <http://127.0.0.1:3000>. The seeded owner signs in at `/admin/login`. On fi
 
 ## Routes
 
-Public: `/`, `/about`, `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]`, `/blog`, `/blog/[slug]`, `/resume`, `/contact`, `rss.xml`, `sitemap.xml`, `robots.txt`.
+Top-level navigation (in order): `/` (Home), `/blog`, `/about`, `/contact`.
+
+About portfolio hub: `/about` sections `#experience`, `#education`, `#skills`, `#projects`, `#resume`. Standalone deep links remain at `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]` and `/resume`; blog posts are at `/blog/[slug]`. Feeds/utilities: `rss.xml`, `sitemap.xml`, `robots.txt`.
 
 Private/setup: `/admin/login`, `/mfa/setup`, `/admin/dashboard`, `/admin/profile`, `/admin/portfolio`, `/admin/blog`, `/admin/finance` (plus `accounts`, `categories`, `transactions`, `transfers`, `contacts`, `lending`, `borrowing`, `donations`, `reports`, `rates`), `/admin/property`, `/admin/property/[id]`, `/admin/documents`, `/admin/audit-logs`, `/admin/settings`.
 
