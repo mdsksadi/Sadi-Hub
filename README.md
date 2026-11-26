@@ -4,7 +4,7 @@ A single-owner personal hub built as a modular Next.js 16 application and deploy
 
 ## Implementation status
 
-This repository implements **Phases 0–6 of [`docs/PLAN.md`](docs/PLAN.md)** (through Donations):
+This repository implements **all phases (0–8) of [`docs/PLAN.md`](docs/PLAN.md)**:
 
 - [x] Next.js 16 / React 19 / TypeScript strict / Tailwind 4 bootstrap
 - [x] OpenNext Cloudflare build, R2 + Durable Object + D1 ISR cache configuration
@@ -17,11 +17,13 @@ This repository implements **Phases 0–6 of [`docs/PLAN.md`](docs/PLAN.md)** (t
 - [x] Finance core: accounts, categories, append-only ledger, income/expense/transfer RPCs, exchange-rate snapshots, balance and cashflow views
 - [x] Lending and borrowing: contacts, loans, repayments, overpayment guards and status views
 - [x] Donations: immutable records, corrections, recipient summaries and finance reports
+- [x] Property records, 100% ownership trigger, valuation history, unit conversions, private document manager
+- [x] Dashboard aggregates with net worth, date/country/currency filters, audit-log UI and CSV/PDF exports
+- [x] Backup/restore scripts, retention workflow and scheduled publishing automation
 - [x] Metadata, Open Graph, canonical URLs, structured data, sitemap, robots
 - [x] Unit, component, and E2E smoke tests; CI workflow and Dependabot
-- [ ] Property, documents, backup tooling and finalization phases
 
-See [`docs/DATABASE.md`](docs/DATABASE.md) for the schema/security model and [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for environment setup and release steps.
+Production migration and Worker deployment remain operator actions because live credentials are intentionally excluded from the repository. See [`docs/DATABASE.md`](docs/DATABASE.md) for the schema/security model, [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for release steps and [`docs/BACKUP.md`](docs/BACKUP.md) for backup/restore operations.
 
 ## Architecture
 
@@ -32,9 +34,9 @@ src/app/api/*      contact, resume and utility route handlers
 src/components/    presentational, form and chart components
 src/lib/auth/      verified claims and owner guards
 src/lib/data/      thin Supabase query adapters
-src/lib/domain/    pure money, ledger, status and grouping helpers
+src/lib/domain/    pure money, ledger, property and reporting helpers
 src/lib/security/  KV-backed rate limiting and Origin checks
-src/lib/services/  contact, blog and finance orchestration
+src/lib/services/  contact, blog, finance, property and export orchestration
 src/lib/supabase/  browser/server/proxy/storage clients
 src/lib/validation/ Zod schemas and FormData helpers
 src/proxy.ts       cookie refresh, security headers, no-store admin policy
@@ -67,41 +69,49 @@ Open <http://127.0.0.1:3000>. The seeded owner signs in at `/admin/login`. On fi
 
 ### Environment variables
 
-| Variable                               | Required        | Purpose                                                                       |
-| -------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SITE_URL`                 | Yes             | Canonical URLs, sitemap, Open Graph                                           |
-| `NEXT_PUBLIC_SUPABASE_URL`             | Yes             | Supabase project URL                                                          |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes             | Browser/server publishable key                                                |
-| `CONTACT_WEBHOOK_URL`                  | No              | Receives validated contact submissions; otherwise redacted metadata is logged |
-| `SUPABASE_SERVICE_ROLE_KEY`            | CI/backups only | Never used by application runtime or client bundles                           |
+| Variable                                                     | Required        | Purpose                                                                       |
+| ------------------------------------------------------------ | --------------- | ----------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL`                                       | Yes             | Canonical URLs, sitemap, Open Graph                                           |
+| `NEXT_PUBLIC_SUPABASE_URL`                                   | Yes             | Supabase project URL                                                          |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`                       | Yes             | Browser/server publishable key                                                |
+| `CONTACT_WEBHOOK_URL`                                        | No              | Receives validated contact submissions; otherwise redacted metadata is logged |
+| `SUPABASE_SERVICE_ROLE_KEY`                                  | CI/backups/cron | Never used by application runtime or client bundles                           |
+| `SUPABASE_DB_URL`, `VERIFY_DB_URL`                           | Backups only    | Source and disposable verification databases for `pg_dump`/restore            |
+| `AGE_RECIPIENT`, `AGE_PRIVATE_KEY_FILE`                      | Backups only    | age public recipient and private key file for encrypted backups               |
+| `R2_BUCKET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | Backups only    | Private R2 destination for encrypted backups                                  |
+| `SUPABASE_URL`                                               | Cron only       | GitHub secret used by the scheduled publishing workflow                       |
 
 `NEXT_PUBLIC_*` values are inlined during `next build`. Set them in `.env.local` or in the CI build environment before `npm run build` / `npm run cf:build`; the `vars` block in `wrangler.jsonc` is not a substitute for build-time public env values.
 
 ### Common scripts
 
-| Script                         | Description                                           |
-| ------------------------------ | ----------------------------------------------------- |
-| `npm run dev`                  | Next.js development server                            |
-| `npm run build`                | Production Next.js build                              |
-| `npm run typecheck`            | TypeScript strict check                               |
-| `npm run lint`                 | ESLint                                                |
-| `npm test`                     | Vitest unit/component tests                           |
-| `npm run test:e2e`             | Playwright smoke tests (starts the app automatically) |
-| `npm run verify`               | Format, lint, typecheck, tests, build                 |
-| `npm run db:start` / `db:stop` | Local Supabase stack                                  |
-| `npm run db:reset`             | Reapply migrations and local seed                     |
-| `npm run db:push`              | Apply migrations to a linked hosted project           |
-| `npm run db:types`             | Regenerate `types/supabase.ts` from local schema      |
-| `npm run cf:build`             | Build the Cloudflare Worker bundle                    |
-| `npm run cf:deploy`            | Deploy the Worker                                     |
-| `npm run check:size`           | Enforce Cloudflare's 64 MiB uncompressed Worker limit |
-| `npm run check:secrets`        | Scan client assets for secrets/JWTs                   |
+| Script                            | Description                                           |
+| --------------------------------- | ----------------------------------------------------- |
+| `npm run dev`                     | Next.js development server                            |
+| `npm run build`                   | Production Next.js build                              |
+| `npm run typecheck`               | TypeScript strict check                               |
+| `npm run lint`                    | ESLint                                                |
+| `npm test`                        | Vitest unit/component tests                           |
+| `npm run test:e2e`                | Playwright smoke tests (starts the app automatically) |
+| `npm run verify`                  | Format, lint, typecheck, tests, build                 |
+| `npm run db:start` / `db:stop`    | Local Supabase stack                                  |
+| `npm run db:reset`                | Reapply migrations and local seed                     |
+| `npm run db:push`                 | Apply migrations to a linked hosted project           |
+| `npm run db:types`                | Regenerate `types/supabase.ts` from local schema      |
+| `npm run cf:build`                | Build the Cloudflare Worker bundle                    |
+| `npm run cf:deploy`               | Deploy the Worker                                     |
+| `npm run check:size`              | Enforce Cloudflare's 64 MiB uncompressed Worker limit |
+| `npm run check:secrets`           | Scan client assets for secrets/JWTs                   |
+| `npm run backup` / `backup:prune` | Encrypted nightly backup and retention pruning        |
+| `npm run backup:verify`           | Restore an encrypted backup into a disposable DB      |
 
 ## Routes
 
 Public: `/`, `/about`, `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]`, `/blog`, `/blog/[slug]`, `/resume`, `/contact`, `rss.xml`, `sitemap.xml`, `robots.txt`.
 
-Private/setup: `/admin/login`, `/mfa/setup`, `/admin/dashboard`, `/admin/profile`, `/admin/portfolio`, `/admin/blog`, `/admin/finance` (plus `accounts`, `categories`, `transactions`, `transfers`, `contacts`, `lending`, `borrowing`, `donations`, `reports`, `rates`), `/admin/settings`.
+Private/setup: `/admin/login`, `/mfa/setup`, `/admin/dashboard`, `/admin/profile`, `/admin/portfolio`, `/admin/blog`, `/admin/finance` (plus `accounts`, `categories`, `transactions`, `transfers`, `contacts`, `lending`, `borrowing`, `donations`, `reports`, `rates`), `/admin/property`, `/admin/property/[id]`, `/admin/documents`, `/admin/audit-logs`, `/admin/settings`.
+
+Exports: `/api/exports/csv?resource=ledger` (allow-listed ledger/loan/donation/property/document views) and `/api/exports/pdf?report=monthly|yearly`. Private document downloads go through `/api/documents/[id]`, which mints a short-lived signed URL after an owner check.
 
 Admin and setup responses are explicitly `private, no-store`, including redirects and auth-refresh responses. The proxy also checks `Origin`/`Sec-Fetch-Site` on mutations, applies security headers, and rate-limits login, MFA setup, and contact submissions using `RATE_LIMIT_KV`. Production fails closed if that binding is missing. In `next dev`, an in-memory fallback is used; it is per-isolate and not safe for multiple Workers.
 
@@ -115,13 +125,17 @@ Admin and setup responses are explicitly `private, no-store`, including redirect
 - Every cash movement is written by an atomic `SECURITY INVOKER` RPC into the append-only `financial_transactions` ledger. The owner cannot update or delete ledger, donation, or repayment rows through PostgREST.
 - Accounts keep their original currency. Consolidated figures use snapshotted `exchange_rates` and are labelled as translated; EUR and BDT are never summed directly. If no rate covers a date, the mutation fails until a rate is added under `/admin/finance/rates`.
 - Lending/borrowing repayments check the remaining principal with row locks plus a database trigger. Donations are immutable; corrections create separate ledger rows.
-- Finance charts are server-rendered bars rather than a client chart library, keeping the Worker bundle small.
+- Finance and dashboard charts are server-rendered bars rather than a client chart library, keeping the Worker bundle small.
+- Properties preserve original regional area units; ownership rosters must total `100.00`, conversions are dated and sourced, and valuations are an append-only history labelled ESTIMATED.
+- Private documents are uploaded to the `documents` bucket, linked to business records, and downloaded only through expiring signed URLs.
+- The dashboard uses `get_dashboard_summary()` and `get_net_worth()` with snapshotted rates; EUR and BDT figures stay separate and missing rates are disclosed.
+- CSV exports are owner-gated with formula-injection protection; PDF reports are generated with `pdf-lib` in a lazy route chunk.
 
 ## Testing and CI
 
-GitHub Actions runs formatting, lint, typecheck, Vitest, a Next.js build, Playwright smoke tests, the OpenNext Worker build, Worker size/security scans, a dependency audit, and a local Supabase migration smoke test.
+GitHub Actions runs formatting, lint, typecheck, Vitest, a Next.js build, Playwright smoke tests, the OpenNext Worker build, Worker size/security scans, a dependency audit, a local Supabase migration/RPC smoke test, a nightly encrypted backup, and scheduled publishing.
 
-Local Supabase and RLS integration tests require Docker. The migration smoke test in CI verifies that all Phase 1–6 tables and views exist, have RLS enabled where required, keep append-only tables free of UPDATE/DELETE grants, grant only the intended anonymous reads, keep private identity fields out of `public_profiles_v`, seed the donation categories, and create exactly one owner. Full anon/non-owner RLS matrix and RPC rollback tests are planned with the database test suite in later phases.
+Local Supabase and RLS integration tests require Docker. The migration smoke test in CI verifies that all tables and views (including property, documents and `net_worth_v`) exist, have RLS enabled where required, keep append-only tables free of UPDATE/DELETE grants, grant only the intended anonymous reads, keep private identity fields out of `public_profiles_v`, seed the donation categories, create exactly one owner, and enforce the ownership-share trigger. It also rolls back test transactions covering property creation, valuation history and rejected over-allocation. Playwright checks the privacy and cache headers of every private area, including the new property, document, audit and export routes.
 
 ## Known deviations from the original plan
 
@@ -131,7 +145,8 @@ Local Supabase and RLS integration tests require Docker. The migration smoke tes
 - The resume is streamed through `/api/resume` using a narrowly scoped storage read policy and an RPC for the object path. The service-role key is never used at runtime.
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is used instead of the older anon-key name, as specified in the plan.
 - The public profile view exposes only presentation fields. Internal profile fields remain private.
-- `certifications.document_id` has no foreign key until the Phase 7 `documents` migration exists.
+- Ownership totals are enforced by a deferred constraint trigger checked at transaction commit; this allows the full owner roster to be replaced atomically through `add_property_owner()`.
 - Contact submissions are forwarded to an optional webhook; without one, only redacted delivery metadata is logged, because the Phase 2 contact design never persisted public submissions.
-- The plan suggests Recharts and scheduled cron publishing. Charts are server-rendered bars to avoid client bundle weight, and due scheduled posts are published from `/admin/blog` until an external cron is wired.
+- The plan suggests Recharts. Charts are server-rendered bars to avoid client bundle weight; scheduled posts are now published by a GitHub cron calling a service-role-only RPC, with manual publishing still available at `/admin/blog`.
 - Financial RPCs are `SECURITY INVOKER` as the plan requires; therefore insert privileges on append-only tables are granted to `authenticated` for the RPC call, while UPDATE/DELETE remain ungranted and triggers/views enforce the business invariants.
+- Backups and the scheduled publisher use `service_role` from GitHub Secrets only. It is never used by the Worker runtime or any client bundle, and the cron RPC re-checks the service-role JWT claim.
