@@ -309,11 +309,13 @@ jobs:
               raise exception 'Reversal stored as %', v_type;
             end if;
 
+            -- The +2 adjustment raised the refundable cap to 12; the 10
+            -- reversal leaves 2. A cent above that must be rejected.
             begin
               perform public.correct_donation(
                 p_donation_id => v_donation,
                 p_correction_type => 'reversal',
-                p_amount => '0.0001',
+                p_amount => '2.0001',
                 p_reason => 'CI over-reversal'
               );
               raise exception 'Over-reversal was accepted';
