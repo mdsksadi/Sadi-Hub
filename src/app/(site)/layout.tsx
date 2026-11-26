@@ -7,13 +7,8 @@ import { safeExternalUrl } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Home" },
-  { href: "/about", label: "About" },
-  { href: "/experience", label: "Experience" },
-  { href: "/education", label: "Education" },
-  { href: "/skills", label: "Skills" },
-  { href: "/projects", label: "Projects" },
   { href: "/blog", label: "Blog" },
-  { href: "/resume", label: "Resume" },
+  { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ];
 
