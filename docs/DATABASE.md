@@ -16,7 +16,7 @@ This document describes the Supabase schema implemented by the migrations in `su
 | `supabase/migrations/20261126000002_reporting.sql`          | Safe rate lookup, `net_worth_at()`/`net_worth_v`, owner dashboard summary RPC, service-role cron publisher                                |
 | `supabase/seed.sql`                                         | **Local only** placeholder owner, content, accounts, contacts and inverse seed rate                                                       |
 | `supabase/config.toml`                                      | Local CLI settings: signups disabled, 12-character passwords, TOTP enabled                                                                |
-| `d1/migrations/0001_revalidations.sql`                      | Cloudflare D1 tag cache used by OpenNext                                                                                                  |
+| `d1/migrations/0001_revalidations.sql`                      | Optional D1 tag-cache schema retained for a future ISR setup; not deployed in the current free-tier configuration                         |
 | `types/supabase.ts`                                         | Hand-maintained Phase 1–6 types; CI applies migrations and smoke-checks the schema and grants                                             |
 
 ## Identity and public content
