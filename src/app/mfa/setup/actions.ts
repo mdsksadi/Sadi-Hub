@@ -26,9 +26,28 @@ export async function startSetupEnrollment(): Promise<SetupState> {
   if (!supabase)
     return { status: "error", message: "Authentication is not configured." };
 
-  const { data: factors } = await supabase.auth.mfa.listFactors();
-  if (factors?.totp.some((factor) => factor.status === "verified")) {
+  // `mfa.listFactors()` only returns verified factors. Read the full factor
+  // list from the user so abandoned unverified factors can be cleaned up;
+  // otherwise GoTrue rejects a new factor with the same friendly name.
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData.user)
+    return { status: "error", message: "Could not load MFA factors." };
+  const factors = userData.user.factors ?? [];
+  if (
+    factors.some(
+      (factor) => factor.factor_type === "totp" && factor.status === "verified",
+    )
+  ) {
     redirect("/admin/dashboard");
+  }
+
+  for (const factor of factors) {
+    if (factor.status === "verified") continue;
+    const { error: unenrollError } = await supabase.auth.mfa.unenroll({
+      factorId: factor.id,
+    });
+    if (unenrollError)
+      return { status: "error", message: "Could not reset MFA enrollment." };
   }
 
   const { data: enrolled, error: enrollError } = await supabase.auth.mfa.enroll(
