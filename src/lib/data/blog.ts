@@ -1,8 +1,11 @@
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { relatedPosts } from "@/lib/domain/blog";
+import { getSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import type {
   BlogCategory,
   BlogTag,
+  Database,
   Post,
   PostDetail,
 } from "../../../types/supabase";
@@ -124,9 +127,21 @@ export async function getPublishedPostBySlug(
 }
 
 export async function getPublishedSlugs(): Promise<string[]> {
-  const supabase = await createClient();
-  if (!supabase) return [];
-  const { data, error } = await publicPostFilter(supabase, "slug");
+  const env = getSupabaseEnv();
+  if (!env) return [];
+
+  // generateStaticParams runs at build time without an HTTP request, so it must
+  // not use the cookie-backed server client. Published posts are readable by
+  // anon through RLS, which is enough to discover build-time slugs.
+  const supabase = createSupabaseClient<Database>(env.url, env.key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await supabase
+    .from("posts")
+    .select("slug")
+    .eq("status", "published")
+    .lte("published_at", new Date().toISOString())
+    .is("deleted_at", null);
   if (error) {
     await logDataError("published_post_slugs", error.message);
     return [];
