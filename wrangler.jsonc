@@ -14,43 +14,15 @@
       "service": "sadi-hub",
     },
   ],
-  "r2_buckets": [
-    {
-      "binding": "NEXT_INC_CACHE_R2_BUCKET",
-      "bucket_name": "sadi-hub-opennext-cache",
-    },
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "NEXT_CACHE_DO_QUEUE",
-        "class_name": "DOQueueHandler",
-      },
-    ],
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_classes": ["DOQueueHandler"],
-    },
-  ],
-  "d1_databases": [
-    {
-      "binding": "NEXT_TAG_CACHE_D1",
-      "database_name": "sadi-hub-tag-cache",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
-      "migrations_dir": "d1/migrations",
-    },
-  ],
   "kv_namespaces": [
     {
       "binding": "RATE_LIMIT_KV",
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID",
+      "id": "b44cf14b6d054e33ab74d4d94754ec31",
     },
   ],
   "vars": {
-    "NEXT_PUBLIC_SITE_URL": "https://example.com",
-    "NEXT_PUBLIC_SUPABASE_URL": "https://your-project.supabase.co",
-    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "REPLACE_WITH_PUBLISHABLE_KEY",
+    "NEXT_PUBLIC_SITE_URL": "https://sadi-hub.mdsksadi2.workers.dev",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://mxbdrzroepmfoatmxgvn.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_MHDqTm7II7N9yETFw7vQeQ_WFt1PvTV",
   },
 }
