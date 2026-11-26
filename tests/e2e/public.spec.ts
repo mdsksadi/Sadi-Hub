@@ -10,6 +10,45 @@ test("public pages render with a navigation and footer", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
 });
 
+test("main navigation is Home, Blog, About, Contact", async ({ page }) => {
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(nav.getByRole("link")).toHaveText([
+    "Home",
+    "Blog",
+    "About",
+    "Contact",
+  ]);
+  await expect(nav.getByRole("link", { name: "About" })).toHaveAttribute(
+    "href",
+    "/about",
+  );
+});
+
+test("About is the portfolio hub", async ({ page }) => {
+  await page.goto("/about");
+  const sectionNav = page.getByRole("navigation", {
+    name: "Portfolio sections",
+  });
+  await expect(sectionNav.getByRole("link")).toHaveText([
+    "Experience",
+    "Education",
+    "Skills",
+    "Projects",
+    "Resume",
+  ]);
+
+  for (const id of [
+    "experience",
+    "education",
+    "skills",
+    "projects",
+    "resume",
+  ]) {
+    await expect(page.locator(`section#${id} h2#${id}-heading`)).toBeVisible();
+  }
+});
+
 test("contact form is available publicly", async ({ page }) => {
   await page.goto("/contact");
   await expect(
