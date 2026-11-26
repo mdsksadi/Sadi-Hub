@@ -28,7 +28,11 @@ const financeLinks = [
   { href: "/admin/finance/rates", label: "Exchange rates" },
 ];
 
-const upcoming = ["Property", "Documents", "Audit logs"];
+const recordLinks = [
+  { href: "/admin/property", label: "Property" },
+  { href: "/admin/documents", label: "Documents" },
+  { href: "/admin/audit-logs", label: "Audit logs" },
+];
 
 export default async function AdminLayout({
   children,
@@ -86,9 +90,14 @@ export default async function AdminLayout({
                 Settings &amp; MFA
               </Link>
             </li>
-            {upcoming.map((label) => (
-              <li key={label} className="text-muted-foreground/50 px-3 py-2">
-                {label} <span className="text-xs">(later)</span>
+            {recordLinks.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="text-muted-foreground hover:bg-muted hover:text-foreground block rounded-md px-3 py-2"
+                >
+                  {link.label}
+                </Link>
               </li>
             ))}
           </ul>
