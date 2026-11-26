@@ -39,4 +39,13 @@ describe("MFA QR rendering", () => {
     expect(dataUrl.startsWith("data:image/svg+xml,")).toBe(true);
     expect(dataUrl).not.toContain("<svg");
   });
+
+  it("passes through Supabase's SVG data URL without double encoding", () => {
+    const dataUrl = qrSvgToDataUrl(
+      'data:image/svg+xml;utf-8,<svg><rect width="3" height="3" /></svg>',
+    );
+    expect(dataUrl).toBe(
+      'data:image/svg+xml;utf-8,<svg><rect width="3" height="3" /></svg>',
+    );
+  });
 });
