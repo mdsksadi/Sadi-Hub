@@ -12,8 +12,9 @@ concurrency:
 
 env:
   NODE_VERSION: "26"
-  # NEXT_PUBLIC_* values are inlined at build time. CI uses harmless placeholders
-  # so builds and client-asset scans run without real credentials.
+  # Harmless defaults so non-build steps can run. Before the Next.js build, CI
+  # starts a local Supabase stack and replaces these with its local URL/key so
+  # static generation and E2E tests see the seeded database.
   NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
   NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-publishable-key-0123456789
@@ -32,6 +33,24 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+          github-token: ${{ github.token }}
+
+      - name: Start local Supabase and apply seed
+        run: |
+          supabase start
+          supabase db reset
+
+      - name: Expose local Supabase to the app and E2E tests
+        run: |
+          eval "$(supabase status -o env)"
+          {
+            printf 'NEXT_PUBLIC_SUPABASE_URL=%s\n' "$API_URL"
+            printf 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=%s\n' "$PUBLISHABLE_KEY"
+          } >> "$GITHUB_ENV"
 
       - name: Format
         run: npm run format:check
@@ -71,23 +90,6 @@ jobs:
       - name: Dependency audit
         # Advisories left in the pinned OpenNext adapter have no non-breaking fix.
         run: npm audit --omit=dev --audit-level=critical
-
-  database:
-    name: Migration smoke test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-          github-token: ${{ github.token }}
-
-      - name: Start local Supabase
-        run: supabase start
-
-      - name: Apply migrations and local seed
-        run: supabase db reset
 
       - name: Verify Phase 1–6 schema
         env:
