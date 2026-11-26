@@ -342,7 +342,7 @@ begin
   end if;
 
   v_ledger_id := public.record_ledger_movement(
-    v_owner_id, p_account_id, 'income', 1, p_amount, p_business_date,
+    v_owner_id, p_account_id, 'income', 1::smallint, p_amount, p_business_date,
     p_category_id, null, 'income', null, p_description, v_notes, null
   );
   return v_ledger_id;
@@ -413,7 +413,7 @@ begin
   end if;
 
   v_ledger_id := public.record_ledger_movement(
-    v_owner_id, p_account_id, 'expense', -1, p_amount, p_business_date,
+    v_owner_id, p_account_id, 'expense', (-1)::smallint, p_amount, p_business_date,
     p_category_id, null, 'expense', null, p_description, v_notes, null
   );
   return v_ledger_id;
@@ -537,18 +537,18 @@ begin
   returning id into v_transfer_id;
 
   v_out_ledger_id := public.record_ledger_movement(
-    v_owner_id, p_source_account_id, 'transfer_out', -1, p_source_amount,
+    v_owner_id, p_source_account_id, 'transfer_out', (-1)::smallint, p_source_amount,
     p_transfer_date, null, v_transfer_id, 'transfer', v_transfer_id,
     'Transfer to ' || v_destination.name, p_notes, null
   );
   v_in_ledger_id := public.record_ledger_movement(
-    v_owner_id, p_destination_account_id, 'transfer_in', 1, p_destination_amount,
+    v_owner_id, p_destination_account_id, 'transfer_in', 1::smallint, p_destination_amount,
     p_transfer_date, null, v_transfer_id, 'transfer', v_transfer_id,
     'Transfer from ' || v_source.name, p_notes, null
   );
   if v_fee > 0 then
     v_fee_ledger_id := public.record_ledger_movement(
-      v_owner_id, p_source_account_id, 'expense', -1, v_fee,
+      v_owner_id, p_source_account_id, 'expense', (-1)::smallint, v_fee,
       p_transfer_date, null, v_transfer_id, 'transfer_fee', v_transfer_id,
       'Transfer fee', p_notes, null
     );
