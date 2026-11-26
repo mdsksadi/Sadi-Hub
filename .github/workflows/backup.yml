@@ -1,0 +1,74 @@
+name: Backup
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # nightly, 03:17 UTC
+    - cron: "17 3 1 * *" # monthly, 03:17 UTC on the 1st
+  workflow_dispatch:
+    inputs:
+      monthly:
+        description: "Write a monthly key instead of a daily key"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sadi-hub-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      VERIFY_DB_URL: ${{ secrets.VERIFY_DB_URL }}
+      AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install backup client tools
+        run: sudo apt-get update && sudo apt-get install -y age postgresql-client
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Choose backup class
+        id: mode
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          MONTHLY: ${{ inputs.monthly }}
+        run: |
+          if [ "$SCHEDULE" = "17 3 1 * *" ] || [ "$MONTHLY" = "true" ]; then
+            echo "flags=--monthly" >> "$GITHUB_OUTPUT"
+          else
+            echo "flags=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create encrypted backup
+        run: npm run backup -- ${{ steps.mode.outputs.flags }}
+
+      - name: Prune expired backups
+        run: npm run backup:prune
+
+      - name: Write verification key to a private temp file
+        if: env.VERIFY_DB_URL != '' && env.AGE_PRIVATE_KEY != ''
+        run: |
+          umask 077
+          printf '%s\n' "$AGE_PRIVATE_KEY" > "$RUNNER_TEMP/age-backup.key"
+          echo "AGE_PRIVATE_KEY_FILE=$RUNNER_TEMP/age-backup.key" >> "$GITHUB_ENV"
+
+      - name: Verify backup by restoring to a disposable database
+        if: env.VERIFY_DB_URL != '' && env.AGE_PRIVATE_KEY != ''
+        run: npm run backup:verify
