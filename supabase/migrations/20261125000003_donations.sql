@@ -381,7 +381,7 @@ begin
     v_owner_id,
     v_account.id,
     'donation',
-    -1,
+    (-1)::smallint,
     v_amount,
     p_donation_date::date,
     null,
