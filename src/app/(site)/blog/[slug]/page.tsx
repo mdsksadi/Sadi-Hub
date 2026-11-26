@@ -16,7 +16,7 @@ import { absoluteUrl } from "@/lib/env";
 import { PUBLIC_BUCKET, publicObjectUrl } from "@/lib/supabase/storage";
 import { formatDate } from "@/lib/utils";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ slug: string }> };
 
