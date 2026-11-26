@@ -11,7 +11,7 @@ import { jsonLd } from "@/lib/domain/json";
 import { publicObjectUrl, PUBLIC_BUCKET } from "@/lib/supabase/storage";
 import { formatDateRange, safeExternalUrl } from "@/lib/utils";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -45,7 +45,10 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   return (
     <article className="space-y-8">
-      <Link href="/projects" className="text-primary text-sm hover:underline">
+      <Link
+        href="/about#projects"
+        className="text-primary text-sm hover:underline"
+      >
         ← All projects
       </Link>
       <header className="space-y-3">
