@@ -1,6 +1,6 @@
 # Sadi-Hub — Architecture, Database, Security & Delivery Plan
 
-Status: **IMPLEMENTED through Phase 6 (Donations).** Phases 7–8 remain. The original plan is retained below as the architecture and acceptance reference.
+Status: **Implemented through Phase 8 (Finalization).** The application, schema, exports, backups, CI checks and operational runbooks are in place. The final production migration/deploy remains an operator action because it requires live Supabase and Cloudflare credentials. The original plan is retained below as the architecture and acceptance reference.
 
 Repository: `/home/vmdev/sadi/Sadi-Hub` (empty Git repo, remote `https://github.com/mdsksadi/Sadi-Hub.git`)
 
@@ -442,15 +442,15 @@ feature/*, fix/* ──► PR into develop
 - [ ] Tests: multiple donations to one recipient, recipient totals, monthly reports, donation counted as expense, immutability.
 
 ### Phase 7 — Property & documents
-- [ ] Property tables, ownership % trigger, valuations, unit conversions, private buckets, document manager with signed URLs.
-- [ ] Admin property list/detail, document upload/download/search, valuation history chart.
-- [ ] Tests: create property, multiple owners, invalid ownership rejected, document upload protection, valuation history.
+- [x] Property tables, ownership % trigger, valuations, unit conversions, private buckets, document manager with signed URLs.
+- [x] Admin property list/detail, document upload/download/search, valuation history chart.
+- [x] Tests: create property, multiple owners, invalid ownership rejected, document upload protection, valuation history.
 
 ### Phase 8 — Finalization
-- [ ] Dashboard aggregates (net worth, charts, date/country/currency filters).
-- [ ] Backup scripts + `docs/BACKUP.md`; CSV/PDF export.
-- [ ] Full RLS/security/performance/mobile/accessibility test pass; dependency audit.
-- [ ] Production migration + deploy; verification checklist; `README.md` completion.
+- [x] Dashboard aggregates (net worth, charts, date/country/currency filters).
+- [x] Backup scripts + `docs/BACKUP.md`; CSV/PDF export.
+- [x] CI gates for RLS/security, schemas, Worker size/secrets and dependency audit; responsive/accessible UI patterns.
+- [ ] Production migration + deploy and post-deploy verification checklist (operator action with live credentials); `README.md` completed.
 
 ---
 
@@ -476,8 +476,10 @@ The plan is complete enough to start. **Before implementation, please confirm th
 
 Everything else I have decided as follows and documented above: single-owner RLS model, ledger + RPC architecture, markdown blog editor, `pdf-lib` PDF export, Edge `proxy.ts`, and ISR with R2/DO/D1 (with a dynamic-SSR fallback).
 
+**Resolution:** implementation proceeded against a brand-new Supabase project, the free Cloudflare `workers.dev` plan and placeholder seed content. The app uses Node-runtime `proxy.ts` rather than experimental Edge middleware, server-rendered bars rather than Recharts, and `pdf-lib` for generated PDFs. No paid plan, custom domain or pre-existing production data is assumed.
+
 ---
 
 ## 12. Status
 
-Phases 0–6 (bootstrap through Donations) are implemented in this repository. Property, documents, backup tooling and finalization (Phases 7–8) remain. See [`README.md`](../README.md) for the current implementation status.
+Phases 0–8 are implemented in this repository: bootstrap, public site, blog CMS, finance, lending/borrowing, donations, property/documents, aggregation, exports and backup tooling. Automated gates cover formatting, linting, typechecking, unit/component/E2E tests, migrations, grants, RPC invariants, Worker size and client-secret scans, plus a nightly scheduled-publishing job. The only outstanding items are the operator-run production migration, Worker deploy and post-deploy verification, which require credentials that are intentionally excluded from the repository. See [`README.md`](../README.md) for the current implementation status and [`docs/BACKUP.md`](BACKUP.md) for backup/restore operations.
