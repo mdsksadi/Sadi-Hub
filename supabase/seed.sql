@@ -12,6 +12,12 @@ insert into auth.users (
   role,
   email,
   encrypted_password,
+  -- Newer GoTrue versions scan these token columns as strings; without an
+  -- explicit empty value they default to NULL and password sign-in fails.
+  confirmation_token,
+  email_change_token_new,
+  recovery_token,
+  email_change,
   email_confirmed_at,
   raw_app_meta_data,
   raw_user_meta_data,
@@ -25,6 +31,10 @@ values (
   'authenticated',
   'owner@example.com',
   crypt('ChangeMe-123456789', gen_salt('bf')),
+  '',
+  '',
+  '',
+  '',
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
   '{"full_name":"Sadi"}'::jsonb,
