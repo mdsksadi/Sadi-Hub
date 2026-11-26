@@ -1,86 +1,150 @@
 import type { Metadata } from "next";
-import { Markdown } from "@/components/markdown";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
+import {
+  CertificationList,
+  EducationList,
+  ExperienceList,
+  PortfolioSection,
+  ProfileCard,
+  ProjectGrid,
+  ResumeCard,
+  SkillGroups,
+} from "@/components/portfolio-sections";
 import {
   getPublicCertifications,
+  getPublicEducation,
+  getPublicExperiences,
   getPublicProfile,
+  getPublicProjects,
+  getPublicSkills,
+  getResumeObjectPath,
 } from "@/lib/data/portfolio";
-import { formatDate } from "@/lib/utils";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "About" };
 
+const sections = [
+  { id: "experience", label: "Experience", href: "/experience" },
+  { id: "education", label: "Education", href: "/education" },
+  { id: "skills", label: "Skills", href: "/skills" },
+  { id: "projects", label: "Projects", href: "/projects" },
+  { id: "resume", label: "Resume", href: "/resume" },
+];
+
+function FullPageLink({ href }: { href: string }) {
+  return (
+    <Link href={href} className="text-primary text-sm hover:underline">
+      Full page →
+    </Link>
+  );
+}
+
 export default async function AboutPage() {
-  const [profile, certifications] = await Promise.all([
+  const [
+    profile,
+    experiences,
+    education,
+    skills,
+    projects,
+    certifications,
+    resumePath,
+  ] = await Promise.all([
     getPublicProfile(),
+    getPublicExperiences(),
+    getPublicEducation(),
+    getPublicSkills(),
+    getPublicProjects(),
     getPublicCertifications(),
+    getResumeObjectPath(),
   ]);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
       <header>
         <h1 className="text-3xl font-bold tracking-tight">About</h1>
         <p className="text-muted-foreground mt-2">
-          A short introduction and the credentials behind the work.
+          My portfolio at a glance: experience, education, skills, projects and
+          resume.
         </p>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{profile?.display_name ?? "Sadi"}</CardTitle>
-          {profile?.headline && (
-            <p className="text-muted-foreground text-sm">{profile.headline}</p>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(profile?.location || profile?.timezone) && (
-            <p className="text-muted-foreground text-sm">
-              {[profile.location, profile.timezone].filter(Boolean).join(" · ")}
-            </p>
-          )}
-          <Markdown source={profile?.bio_md} />
-          {!profile && (
-            <p className="text-muted-foreground text-sm">
-              Profile content has not been configured yet.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <ProfileCard profile={profile} />
 
-      <section aria-labelledby="certifications">
-        <h2 id="certifications" className="mb-4 text-2xl font-semibold">
-          Certifications
-        </h2>
-        {certifications.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No certifications published yet.
-          </p>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {certifications.map((cert) => (
-              <li key={cert.id}>
-                <Card className="h-full">
-                  <CardContent className="space-y-2 pt-5">
-                    <p className="font-medium">{cert.name}</p>
-                    <p className="text-muted-foreground text-sm">
-                      {cert.issuer}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {cert.issued_on && (
-                        <Badge>Issued {formatDate(cert.issued_on)}</Badge>
-                      )}
-                      {cert.expires_on && (
-                        <Badge>Expires {formatDate(cert.expires_on)}</Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <nav
+        aria-label="Portfolio sections"
+        className="bg-card/80 rounded-xl border px-4 py-3"
+      >
+        <p className="text-muted-foreground mb-2 text-xs tracking-widest uppercase">
+          On this page
+        </p>
+        <ul className="flex flex-wrap gap-2 text-sm">
+          {sections.map((section) => (
+            <li key={section.id}>
+              <a
+                href={`#${section.id}`}
+                className="hover:bg-muted rounded-md px-2.5 py-1.5"
+              >
+                {section.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <PortfolioSection
+        id="experience"
+        title="Experience"
+        description="Roles, responsibilities and technologies."
+        action={<FullPageLink href="/experience" />}
+      >
+        <ExperienceList experiences={experiences} />
+      </PortfolioSection>
+
+      <PortfolioSection
+        id="education"
+        title="Education"
+        description="Academic background."
+        action={<FullPageLink href="/education" />}
+      >
+        <EducationList items={education} />
+      </PortfolioSection>
+
+      <PortfolioSection
+        id="skills"
+        title="Skills"
+        description="Tools and technologies I work with."
+        action={<FullPageLink href="/skills" />}
+      >
+        <SkillGroups skills={skills} />
+      </PortfolioSection>
+
+      <PortfolioSection
+        id="projects"
+        title="Projects"
+        description="Selected work and experiments."
+        action={<FullPageLink href="/projects" />}
+      >
+        <ProjectGrid projects={projects} />
+      </PortfolioSection>
+
+      <PortfolioSection
+        id="resume"
+        title="Resume"
+        description="A PDF copy of the current resume."
+        action={<FullPageLink href="/resume" />}
+      >
+        <div className="mx-auto max-w-2xl">
+          <ResumeCard profile={profile} resumePath={resumePath} />
+        </div>
+      </PortfolioSection>
+
+      <PortfolioSection
+        id="certifications"
+        title="Certifications"
+        description="Credentials behind the work."
+      >
+        <CertificationList certifications={certifications} />
+      </PortfolioSection>
     </div>
   );
 }
