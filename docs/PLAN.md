@@ -56,7 +56,7 @@ Cloudflare Edge (Workers + Static Assets + WAF rate limiting)
   ▼
 Next.js 16 App Router (Node.js runtime) — ONE deployable Worker
   │
-  ├─ app/(site)/*       public: portfolio, blog, resume, contact
+  ├─ app/(site)/*       public: Home, Blog, About (portfolio hub), Contact
   ├─ app/admin/*        private: Server Components + Server Actions
   ├─ app/api/*          Route Handlers: signed URLs, CSV/PDF, RSS, sitemap
   │
@@ -66,7 +66,7 @@ Next.js 16 App Router (Node.js runtime) — ONE deployable Worker
   ├─ lib/data/          thin Supabase query adapters (no business logic)
   └─ lib/services/      orchestration: calls domain + data + RPC in one unit
   ▼
-@opennextjs/cloudflare  (R2 incremental cache, DO queue, D1 tag cache)
+@opennextjs/cloudflare  (dynamic rendering, dummy cache overrides — no R2/D1/DO)
   ▼
 Supabase
   ├─ PostgreSQL (tables, constraints, views, RPC functions, triggers, RLS)
@@ -81,9 +81,11 @@ Supabase
 - **Data access** (`lib/data`) owns query shapes and generated types; it performs no authorization decisions of its own beyond passing the verified user context.
 - **Migrations** (`supabase/migrations/`) are the only place schema changes happen. No runtime `CREATE TABLE`.
 
-### Route map (unchanged from requirements)
+### Route map
 
-Public: `/`, `/about`, `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]`, `/blog`, `/blog/[slug]`, `/contact`, `/resume`, plus `rss.xml`, `sitemap.xml`, `robots.txt`.
+Top-level public navigation, in order: `/` (Home), `/blog` (Blog), `/about` (About), `/contact` (Contact).
+
+`/about` is the portfolio hub: it presents Experience, Education, Skills, Projects and Resume as in-page sections. The standalone routes `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]` and `/resume` remain available as deep links and "Full page" targets. Blog posts live at `/blog/[slug]`. Feeds and utilities: `rss.xml`, `sitemap.xml`, `robots.txt`.
 
 Private: `/admin/login`, `/admin/dashboard`, `/admin/profile`, `/admin/portfolio`, `/admin/blog`, `/admin/blog/new`, `/admin/blog/[id]/edit`, `/admin/finance` (+ `accounts`, `transactions`, `transfers`, `lending`, `borrowing`, `donations`, `reports`), `/admin/property`, `/admin/property/[id]`, `/admin/documents`, `/admin/settings`, `/admin/audit-logs`.
 
@@ -393,8 +395,8 @@ feature/*, fix/* ──► PR into develop
 
 - Secrets: GitHub Environments (`development`, `production`) hold `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, backup encryption key. Cloudflare Worker runtime secrets set via `wrangler secret put` (never in repo or `.env.example` values).
 - `.env.example` contains placeholders only: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (CI/backups only), `CACHE_PURGE_*`, etc.
-- `wrangler.jsonc`: `compatibility_date = "2026-08-04"`, static assets binding, `WORKER_SELF_REFERENCE`, R2 incremental cache, DO queue, D1 tag cache; `public/_headers` sets immutable caching for `/_next/static/*`.
-- Public pages use time-based ISR; admin pages are always dynamic `no-store`.
+- `wrangler.jsonc`: static assets binding, `WORKER_SELF_REFERENCE`, `RATE_LIMIT_KV` and inlined `NEXT_PUBLIC_*` values; no R2/D1/DO cache bindings. `public/_headers` sets immutable caching for `/_next/static/*`.
+- Public pages render dynamically per request (`force-dynamic`); admin pages are always dynamic `no-store`.
 
 ---
 
@@ -415,16 +417,16 @@ feature/*, fix/* ──► PR into develop
 - [ ] Security tests for unauthenticated/non-owner denial; cache header assertions.
 - **Exit gate:** owner can log in with MFA; foreign/unauthenticated users cannot reach any `/admin` route or private row.
 
-### Phase 2 — Public portfolio
+### Phase 2 — Public portfolio / About hub
 - [ ] Migrations for portfolio tables + published-row RLS; seed content via admin forms.
-- [ ] Homepage, About, Experience, Education, Skills, Projects + `[slug]`, Resume (PDF from private storage via signed URL proxy), Contact (rate-limited).
-- [ ] Metadata, OG, canonical, structured data, sitemap/robots, responsive design, accessibility pass.
-- [ ] Component + E2E tests for public visibility and resume access.
+- [ ] Home, Blog, About portfolio hub (Experience, Education, Skills, Projects + `[slug]`, Resume and Certifications), Contact (rate-limited). Standalone portfolio routes remain as deep links.
+- [ ] Metadata, OG, canonical, structured data, sitemap/robots, four-item top nav and About section nav, responsive design, accessibility pass.
+- [ ] Component + E2E tests for public visibility, nav order, About section anchors and resume access.
 
 ### Phase 3 — Blog CMS
 - [ ] Blog tables, unique slugs, rich markdown editor with preview/syntax highlighting, image upload.
 - [ ] Draft/publish/schedule, categories, tags, search, pagination, reading time, related posts.
-- [ ] RSS, sitemap integration, canonical URLs, revalidation on publish.
+- [ ] RSS, sitemap integration (top-level nav plus About portfolio sections), canonical URLs, immediate visibility after publish.
 - [ ] Tests: draft invisible publicly, publish visible, slug uniqueness, edit, scheduled publish.
 
 ### Phase 4 — Finance core
@@ -482,4 +484,4 @@ Everything else I have decided as follows and documented above: single-owner RLS
 
 ## 12. Status
 
-Phases 0–8 are implemented in this repository: bootstrap, public site, blog CMS, finance, lending/borrowing, donations, property/documents, aggregation, exports and backup tooling. Automated gates cover formatting, linting, typechecking, unit/component/E2E tests, migrations, grants, RPC invariants, Worker size and client-secret scans, plus a nightly scheduled-publishing job. The only outstanding items are the operator-run production migration, Worker deploy and post-deploy verification, which require credentials that are intentionally excluded from the repository. See [`README.md`](../README.md) for the current implementation status and [`docs/BACKUP.md`](BACKUP.md) for backup/restore operations.
+Phases 0–8 are implemented in this repository: bootstrap, public site with the Home/Blog/About/Contact navigation and About-as-portfolio-hub, blog CMS, finance, lending/borrowing, donations, property/documents, aggregation, exports and backup tooling. Automated gates cover formatting, linting, typechecking, unit/component/E2E tests, migrations, grants, RPC invariants, Worker size and client-secret scans, plus a nightly scheduled-publishing job. Production migrations and the Worker deploy have been completed with operator-held credentials; remaining hardening items are tracked in the audit notes rather than the repository. See [`README.md`](../README.md) for the current implementation status and [`docs/BACKUP.md`](BACKUP.md) for backup/restore operations.
