@@ -177,7 +177,7 @@ on conflict (owner_id, slug) do nothing;
 
 insert into public.posts (
   owner_id, author_id, title, slug, excerpt, content_md, category_id,
-  status, published_at, is_featured
+  status, published_at, scheduled_for, is_featured
 )
 values
   (
@@ -190,6 +190,7 @@ values
     (select id from public.blog_categories where owner_id = '00000000-0000-4000-8000-000000000001' and slug = 'engineering'),
     'published',
     now() - interval '1 day',
+    null,
     true
   ),
   (
@@ -202,6 +203,7 @@ values
     null,
     'draft',
     null,
+    null,
     false
   ),
   (
@@ -213,6 +215,7 @@ values
     'Scheduled body.',
     null,
     'scheduled',
+    null,
     now() + interval '1 day',
     false
   )
