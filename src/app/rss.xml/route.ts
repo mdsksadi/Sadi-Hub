@@ -2,7 +2,7 @@ import { getPublishedPosts } from "@/lib/data/blog";
 import { excerptFromMarkdown } from "@/lib/domain/blog";
 import { absoluteUrl } from "@/lib/env";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 const XML_ENTITIES: Record<string, string> = {
   "&": "&amp;",
