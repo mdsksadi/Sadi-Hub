@@ -11,7 +11,7 @@ import {
 } from "@/lib/data/portfolio";
 import { publicObjectUrl, PUBLIC_BUCKET } from "@/lib/supabase/storage";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const [profile, projects, experiences, skills] = await Promise.all([
@@ -42,7 +42,7 @@ export default async function HomePage() {
           )}
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/projects">View projects</Link>
+              <Link href="/about#projects">View projects</Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/contact">Get in touch</Link>
@@ -67,7 +67,7 @@ export default async function HomePage() {
             Featured projects
           </h2>
           <Link
-            href="/projects"
+            href="/about#projects"
             className="text-primary text-sm hover:underline"
           >
             All projects →
