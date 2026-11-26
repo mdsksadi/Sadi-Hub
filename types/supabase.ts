@@ -618,6 +618,170 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      properties: {
+        Row: Owned &
+          Timestamps & {
+            name: string;
+            country_code: string | null;
+            division: string | null;
+            district: string | null;
+            upazila: string | null;
+            union_name: string | null;
+            village: string | null;
+            mouza: string | null;
+            khatian_number: string | null;
+            dag_number: string | null;
+            land_classification: string | null;
+            total_area: number | null;
+            area_unit: string | null;
+            purchase_date: string | null;
+            purchase_price: number | null;
+            currency_code: string | null;
+            current_estimated_value: number | null;
+            notes: string | null;
+          };
+        Insert: Partial<Database["public"]["Tables"]["properties"]["Row"]> & {
+          owner_id: string;
+          name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["properties"]["Row"]>;
+        Relationships: [];
+      };
+      documents: {
+        Row: {
+          id: string;
+          owner_id: string;
+          storage_path: string;
+          file_name: string;
+          mime_type: string;
+          size_bytes: number;
+          category:
+            | "deed"
+            | "khatian"
+            | "mutation"
+            | "tax_receipt"
+            | "agreement"
+            | "map"
+            | "resume"
+            | "certification"
+            | "loan"
+            | "donation"
+            | "other";
+          description: string | null;
+          uploaded_at: string;
+          related_contact_id: string | null;
+          related_transaction_id: string | null;
+          related_property_id: string | null;
+          related_loan_given_id: string | null;
+          related_loan_taken_id: string | null;
+          related_donation_id: string | null;
+          tags: string[];
+        };
+        Insert: Partial<Database["public"]["Tables"]["documents"]["Row"]> & {
+          owner_id: string;
+          storage_path: string;
+          file_name: string;
+          mime_type: string;
+          size_bytes: number;
+          category: Database["public"]["Tables"]["documents"]["Row"]["category"];
+        };
+        Update: Partial<Database["public"]["Tables"]["documents"]["Row"]>;
+        Relationships: [];
+      };
+      property_ownerships: {
+        Row: Owned &
+          Timestamps & {
+            property_id: string;
+            owner_name: string;
+            ownership_percentage: number;
+            acquisition_date: string | null;
+            ownership_type: string | null;
+            notes: string | null;
+          };
+        Insert: Partial<
+          Database["public"]["Tables"]["property_ownerships"]["Row"]
+        > & {
+          owner_id: string;
+          property_id: string;
+          owner_name: string;
+          ownership_percentage: number;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["property_ownerships"]["Row"]
+        >;
+        Relationships: [];
+      };
+      property_documents: {
+        Row: Owned & {
+          property_id: string;
+          document_id: string;
+          document_type:
+            | "deed"
+            | "khatian"
+            | "mutation"
+            | "tax_receipt"
+            | "agreement"
+            | "map"
+            | "other";
+          issued_on: string | null;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["property_documents"]["Row"]
+        > & {
+          owner_id: string;
+          property_id: string;
+          document_id: string;
+          document_type: Database["public"]["Tables"]["property_documents"]["Row"]["document_type"];
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["property_documents"]["Row"]
+        >;
+        Relationships: [];
+      };
+      property_valuations: {
+        Row: Owned & {
+          id: string;
+          property_id: string;
+          estimated_value: number;
+          currency_code: string;
+          valued_on: string;
+          source: string | null;
+          is_verified: boolean;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["property_valuations"]["Row"]
+        > & {
+          owner_id: string;
+          property_id: string;
+          estimated_value: number;
+          currency_code: string;
+          valued_on: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      unit_conversions: {
+        Row: {
+          id: string;
+          from_unit: string;
+          to_unit: string;
+          factor: number;
+          source_note: string | null;
+          valid_from: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["unit_conversions"]["Row"]> & {
+          from_unit: string;
+          to_unit: string;
+          factor: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["unit_conversions"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: {
       public_profiles_v: {
@@ -719,6 +883,20 @@ export type Database = {
           donation_count: number;
           first_date: string;
           last_date: string;
+        };
+        Relationships: [];
+      };
+      net_worth_v: {
+        Row: {
+          owner_id: string;
+          as_of: string;
+          reporting_currency: string;
+          cash_amount_reporting: number;
+          property_amount_reporting: number;
+          receivables_amount_reporting: number;
+          payables_amount_reporting: number;
+          net_amount_reporting: number;
+          missing_rate_currencies: string[];
         };
         Relationships: [];
       };
@@ -866,6 +1044,79 @@ export type Database = {
         };
         Returns: string;
       };
+      safe_reporting_rate: {
+        Args: {
+          p_currency_code: string;
+          p_reporting_currency: string;
+          p_as_of: string;
+        };
+        // Null means no snapshotted rate was available for this component.
+        Returns: number | null;
+      };
+      net_worth_at: {
+        Args: {
+          p_owner_id: string;
+          p_as_of: string;
+          p_reporting_currency: string;
+        };
+        Returns: Database["public"]["Views"]["net_worth_v"]["Row"][];
+      };
+      get_net_worth: {
+        Args: {
+          p_as_of?: string | null;
+          p_reporting_currency?: string | null;
+        };
+        Returns: Database["public"]["Views"]["net_worth_v"]["Row"][];
+      };
+      get_dashboard_summary: {
+        Args: {
+          p_from_date?: string | null;
+          p_to_date?: string | null;
+          p_country_code?: string | null;
+          p_currency_code?: string | null;
+        };
+        Returns: Json;
+      };
+      add_property_owner: {
+        Args: { p_property_id: string; p_owners: Json };
+        Returns: string;
+      };
+      create_property: {
+        Args: {
+          p_name: string;
+          p_area_unit: string;
+          p_country_code?: string | null;
+          p_division?: string | null;
+          p_district?: string | null;
+          p_upazila?: string | null;
+          p_union_name?: string | null;
+          p_village?: string | null;
+          p_mouza?: string | null;
+          p_khatian_number?: string | null;
+          p_dag_number?: string | null;
+          p_land_classification?: string | null;
+          p_total_area?: string | null;
+          p_purchase_date?: string | null;
+          p_purchase_price?: string | null;
+          p_currency_code?: string | null;
+          p_current_estimated_value?: string | null;
+          p_notes?: string | null;
+          p_owners?: Json;
+        };
+        Returns: string;
+      };
+      record_property_valuation: {
+        Args: {
+          p_property_id: string;
+          p_estimated_value: string;
+          p_currency_code: string;
+          p_valued_on: string;
+          p_source?: string | null;
+          p_is_verified?: boolean | null;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
     };
     Enums: Record<string, never>;
   };
@@ -918,6 +1169,56 @@ export type DonationCorrection =
   Database["public"]["Tables"]["donation_corrections"]["Row"];
 export type ContactDonationSummary =
   Database["public"]["Views"]["contact_donation_summary_v"]["Row"];
+export type Property = Database["public"]["Tables"]["properties"]["Row"];
+export type PropertyOwnership =
+  Database["public"]["Tables"]["property_ownerships"]["Row"];
+export type PropertyDocumentLink =
+  Database["public"]["Tables"]["property_documents"]["Row"];
+export type PropertyValuation =
+  Database["public"]["Tables"]["property_valuations"]["Row"];
+export type UnitConversion =
+  Database["public"]["Tables"]["unit_conversions"]["Row"];
+export type Document = Database["public"]["Tables"]["documents"]["Row"];
+export type NetWorth = Database["public"]["Views"]["net_worth_v"]["Row"];
+
+export type DashboardSummary = {
+  filters: {
+    from: string | null;
+    to: string | null;
+    countryCode: string | null;
+    currencyCode: string | null;
+    reportingCurrency: string;
+  };
+  counts: {
+    accounts: number;
+    contacts: number;
+    properties: number;
+    documents: number;
+    publishedPosts: number;
+  };
+  cashByCurrency: Record<string, number>;
+  cashflow: {
+    incomeAmount: number;
+    expenseAmount: number;
+    incomeReporting: number;
+    expenseReporting: number;
+  };
+  donationsByCurrency: Record<string, number>;
+  outstanding: {
+    receivable: Record<string, number>;
+    payable: Record<string, number>;
+  };
+  netWorth: NetWorth;
+};
+
+/** The JSON shape sent to add_property_owner() and create_property(). */
+export type PropertyOwnerInput = {
+  owner_name: string;
+  ownership_percentage: string;
+  acquisition_date?: string | null;
+  ownership_type?: string | null;
+  notes?: string | null;
+};
 
 /** Post plus the nested relations used by the public detail page. */
 export type PostDetail = Post & {
