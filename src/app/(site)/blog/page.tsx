@@ -15,7 +15,7 @@ import { excerptFromMarkdown, formatReadingTime } from "@/lib/domain/blog";
 import { PUBLIC_BUCKET, publicObjectUrl } from "@/lib/supabase/storage";
 import { formatDate } from "@/lib/utils";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Blog",
   description: "Writing, notes and reflections by Sadi.",
