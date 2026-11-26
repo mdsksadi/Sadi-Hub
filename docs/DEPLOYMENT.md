@@ -1,6 +1,6 @@
 # Deployment guide
 
-This guide covers the complete Phase 0–8 stack: Next.js 16 on Cloudflare Workers via `@opennextjs/cloudflare`, Supabase Auth/Postgres/Storage, the R2 + Durable Object + D1 ISR cache, CSV/PDF exports, backups and scheduled publishing.
+This guide covers the complete Phase 0–8 stack: Next.js 16 on Cloudflare Workers via `@opennextjs/cloudflare`, Supabase Auth/Postgres/Storage, dynamic rendering with no paid cache resources, CSV/PDF exports, backups and scheduled publishing.
 
 ## 1. Supabase project
 
@@ -29,30 +29,24 @@ The migration creates the `portfolio` (public) and `documents` (private) buckets
 
 ## 2. Cloudflare resources
 
-Set your account in Wrangler, then create the resources referenced by `wrangler.jsonc`:
+Set your account in Wrangler, then create the only remote resource the Worker needs:
 
 ```bash
 npx wrangler login
-
-npx wrangler r2 bucket create sadi-hub-opennext-cache
 npx wrangler kv namespace create RATE_LIMIT_KV
-npx wrangler d1 create sadi-hub-tag-cache
 ```
 
-Copy the returned KV namespace ID and D1 database ID into `wrangler.jsonc`, replacing:
+Copy the returned KV namespace ID into the `RATE_LIMIT_KV` binding in `wrangler.jsonc` (an ID is already present from the initial setup; replace it if you recreate the namespace). This namespace is free and backs the app-level login/MFA/contact rate limiter.
 
-- `REPLACE_WITH_KV_NAMESPACE_ID`
-- `REPLACE_WITH_D1_DATABASE_ID`
+No R2 bucket, D1 database or Durable Object is required: `open-next.config.ts` uses OpenNext's default dummy cache overrides and all public routes render dynamically (`force-dynamic`). This keeps the deployment entirely on the free plan, even when R2 asks for a payment method. The trade-off is that every public request reads from Supabase instead of serving a cached ISR entry; content is always fresh.
 
-Apply the D1 tag-cache migration:
+Update `vars` in `wrangler.jsonc` to the real Worker URL and Supabase URL/publishable key. Also export them in the build environment, because `NEXT_PUBLIC_*` values are inlined into client bundles at build time:
 
 ```bash
-npx wrangler d1 migrations apply sadi-hub-tag-cache --remote
+export NEXT_PUBLIC_SITE_URL="https://sadi-hub.<account>.workers.dev"
+export NEXT_PUBLIC_SUPABASE_URL="https://<project-ref>.supabase.co"
+export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
 ```
-
-`d1/migrations` is configured as the migrations directory for the `NEXT_TAG_CACHE_D1` binding. The Durable Object class `DOQueueHandler` is registered by the `migrations` block in `wrangler.jsonc` and is created on first deploy.
-
-Update `vars` in `wrangler.jsonc` to the real site URL and Supabase URL/publishable key. Also set them in the build environment, because `NEXT_PUBLIC_*` values are inlined into client bundles at build time.
 
 Optional server-only configuration:
 
@@ -86,23 +80,22 @@ For a preview deployment, change the `name` and `workers.dev` route in `wrangler
 
 ## 4. Caching behavior
 
-- Public pages use `export const revalidate = 300`; the sitemap uses one hour.
-- `/projects/[slug]` is generated on demand and revalidated with the same policy.
+- All public pages, including the `/about` portfolio hub, standalone section routes, `/projects/[slug]`, `rss.xml` and `sitemap.xml`, use `export const dynamic = "force-dynamic"` and render on every request. Content published in the admin UI appears immediately on reload.
 - Admin pages and API routes are dynamic; `/admin/*` (including all `/admin/finance/*` screens), `/mfa/setup`, `/api/contact`, auth redirects, and refreshed sessions include `private, no-store, max-age=0`.
-- The ISR cache uses R2 for incremental cache data, the Durable Object queue for revalidation, and D1 for tag invalidation.
-- Server Actions call `revalidatePath()` for affected public routes after profile or portfolio edits.
-
-If you prefer not to create R2/D1/DO resources, remove the overrides from `open-next.config.ts` and the corresponding bindings from `wrangler.jsonc`; public routes then need explicit dynamic rendering instead of ISR.
+- No R2 incremental cache, Durable Object queue or D1 tag cache is deployed. `open-next.config.ts` uses the default dummy overrides, so `revalidatePath()` calls in Server Actions are harmless no-ops.
+- Static assets (`/_next/static/*`, `icon.svg`, `robots.txt`) are served by Cloudflare Workers Static Assets, not the Worker.
 
 ## 5. Post-deploy checklist
 
-- [ ] `/`, `/about`, `/experience`, `/education`, `/skills`, `/projects`, `/resume`, `/contact` return 200.
-- [ ] `sitemap.xml` and `robots.txt` use the production origin.
-- [ ] A draft portfolio row is not visible publicly; publishing it appears within the revalidation window.
+- [ ] Top-level nav is Home `/`, Blog `/blog`, About `/about`, Contact `/contact`; each returns 200.
+- [ ] `/about` shows the Experience, Education, Skills, Projects and Resume sections in that order, with working on-page anchors.
+- [ ] Standalone deep links `/experience`, `/education`, `/skills`, `/projects`, `/projects/[slug]` and `/resume` still return 200.
+- [ ] `sitemap.xml` and `robots.txt` use the production origin and include the top-level and About-hub routes.
+- [ ] A draft portfolio row is not visible on `/about` or its standalone route; publishing it appears immediately on reload.
 - [ ] `/admin/dashboard` redirects unauthenticated visitors to `/admin/login`.
 - [ ] A new owner is redirected from `/admin/login` to `/mfa/setup` and cannot reach `/admin/*` before verification.
 - [ ] Password sign-in without a verified TOTP factor cannot access `/admin/*`.
-- [ ] `/api/resume` returns the PDF bytes with `application/pdf`, and no storage URL or private object path appears in page HTML.
+- [ ] `/api/resume` returns the PDF bytes with `application/pdf`, and no storage URL or private object path appears in the `/about` or `/resume` HTML.
 - [ ] Contact form rejects invalid input and respects rate limits; server logs contain no sender PII when no webhook is configured.
 - [ ] `/admin/finance`, `accounts`, `transactions`, `transfers`, `contacts`, `lending`, `borrowing`, `donations`, `reports`, `rates`, `/admin/property`, `/admin/documents` and `/admin/audit-logs` redirect unauthenticated visitors and return `Cache-Control: private, no-store`.
 - [ ] An income, an expense and a transfer produce the expected account balances; loan repayments cannot exceed principal; donations are immutable and corrections add separate ledger rows.
