@@ -3,17 +3,17 @@ import { getPublishedSlugs } from "@/lib/data/blog";
 import { getPublicProjects } from "@/lib/data/portfolio";
 import { absoluteUrl } from "@/lib/env";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPaths = [
     "/",
+    "/blog",
     "/about",
     "/experience",
     "/education",
     "/skills",
     "/projects",
-    "/blog",
     "/resume",
     "/contact",
   ];
