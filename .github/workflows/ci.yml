@@ -81,6 +81,7 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+          github-token: ${{ github.token }}
 
       - name: Start local Supabase
         run: supabase start
@@ -327,6 +328,304 @@ jobs:
             if v_income is distinct from 10 or v_expense is distinct from 12 then
               raise exception 'Unexpected donation cashflow: income %, expense %',
                 v_income, v_expense;
+            end if;
+          end
+          $$;
+          rollback;
+          SQL
+
+      - name: Verify Phase 7-8 schema and grants
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            t text;
+            f text;
+            v_anon_oid oid;
+          begin
+            select oid into v_anon_oid from pg_roles where rolname = 'anon';
+            if v_anon_oid is null then
+              raise exception 'Missing anon role';
+            end if;
+
+            foreach t in array array[
+              'properties', 'documents', 'property_ownerships',
+              'property_documents', 'property_valuations', 'unit_conversions'
+            ]
+            loop
+              if to_regclass('public.' || t) is null then
+                raise exception 'Missing table public.%', t;
+              end if;
+              if not (
+                select relrowsecurity
+                from pg_class
+                where oid = ('public.' || t)::regclass
+              ) then
+                raise exception 'RLS is disabled on public.%', t;
+              end if;
+            end loop;
+
+            if to_regclass('public.net_worth_v') is null then
+              raise exception 'Missing view public.net_worth_v';
+            end if;
+            if not has_table_privilege('authenticated', 'public.net_worth_v', 'SELECT') then
+              raise exception 'Owner SELECT grant is missing on public.net_worth_v';
+            end if;
+            if has_table_privilege('anon', 'public.net_worth_v', 'SELECT')
+              or exists (
+                select 1
+                from pg_class c
+                cross join lateral aclexplode(
+                  case when c.relacl is null
+                    then acldefault('r', c.relowner)
+                    else c.relacl
+                  end
+                ) a
+                where c.oid = 'public.net_worth_v'::regclass
+                  and a.grantee = 0
+                  and a.privilege_type = 'SELECT'
+              )
+            then
+              raise exception 'public.net_worth_v is readable by anon or public';
+            end if;
+
+            foreach f in array array[
+              'public.safe_reporting_rate(character, character, date)',
+              'public.net_worth_at(uuid, date, character)',
+              'public.get_net_worth(date, character)',
+              'public.get_dashboard_summary(text, text, text, text)',
+              'public.add_property_owner(uuid, jsonb)',
+              'public.create_property(text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, jsonb)',
+              'public.record_property_valuation(uuid, text, text, text, text, boolean, text)'
+            ]
+            loop
+              if to_regprocedure(f) is null then
+                raise exception 'Missing function %', f;
+              end if;
+              if not has_function_privilege('authenticated', to_regprocedure(f)::oid, 'EXECUTE') then
+                raise exception 'Missing EXECUTE grant for authenticated on %', f;
+              end if;
+              if exists (
+                select 1
+                from pg_proc p
+                cross join lateral aclexplode(
+                  case when p.proacl is null
+                    then acldefault('f', p.proowner)
+                    else p.proacl
+                  end
+                ) a
+                where p.oid = to_regprocedure(f)::oid
+                  and a.privilege_type = 'EXECUTE'
+                  and (a.grantee = 0 or a.grantee = v_anon_oid)
+              ) then
+                raise exception 'Function % is executable by anon or public', f;
+              end if;
+            end loop;
+
+            foreach f in array array[
+              'public.enforce_property_ownership()',
+              'public.validate_document_owner_path()',
+              'public.validate_property_document_link()'
+            ]
+            loop
+              if to_regprocedure(f) is null then
+                raise exception 'Missing trigger function %', f;
+              end if;
+              if has_function_privilege('authenticated', to_regprocedure(f)::oid, 'EXECUTE')
+                or has_function_privilege('anon', to_regprocedure(f)::oid, 'EXECUTE')
+                or exists (
+                  select 1
+                  from pg_proc p
+                  cross join lateral aclexplode(
+                    case when p.proacl is null
+                      then acldefault('f', p.proowner)
+                      else p.proacl
+                    end
+                  ) a
+                  where p.oid = to_regprocedure(f)::oid
+                    and a.grantee = 0
+                    and a.privilege_type = 'EXECUTE'
+                )
+              then
+                raise exception 'Trigger function % must not be callable', f;
+              end if;
+            end loop;
+
+            foreach t in array array[
+              'property_valuations', 'financial_transactions'
+            ]
+            loop
+              if has_table_privilege('authenticated', 'public.' || t, 'UPDATE')
+                or has_table_privilege('authenticated', 'public.' || t, 'DELETE') then
+                raise exception 'Append-only table % accepts UPDATE or DELETE', t;
+              end if;
+            end loop;
+
+            if not exists (
+              select 1
+              from pg_trigger
+              where tgrelid = 'public.property_ownerships'::regclass
+                and tgname = 'property_ownership_total_check'
+                and not tgisinternal
+                and tgconstraint <> 0
+                and tgdeferrable
+            ) then
+              raise exception 'Missing deferred ownership-sum constraint trigger';
+            end if;
+
+            if not exists (
+              select 1
+              from pg_trigger
+              where tgrelid = 'public.documents'::regclass
+                and tgname = 'documents_validate_path'
+                and not tgisinternal
+            ) then
+              raise exception 'Missing document path validation trigger';
+            end if;
+
+            if not exists (
+              select 1
+              from pg_constraint
+              where conrelid = 'public.certifications'::regclass
+                and conname = 'certifications_document_fk'
+                and contype = 'f'
+                and confrelid = 'public.documents'::regclass
+            ) then
+              raise exception 'Missing certifications.document_id foreign key';
+            end if;
+          end
+          $$;
+          SQL
+
+      - name: Smoke test property and reporting RPCs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          begin;
+          set local role authenticated;
+          set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000001';
+          set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}';
+          do $$
+          declare
+            v_owner uuid := '00000000-0000-4000-8000-000000000001';
+            v_property uuid;
+            v_valuation uuid;
+            v_owners integer;
+            v_total numeric;
+            v_value numeric;
+            v_current numeric;
+            v_verified boolean;
+            v_net numeric;
+            v_summary jsonb;
+          begin
+            v_property := public.create_property(
+              p_name => 'CI property',
+              p_area_unit => 'Katha',
+              p_country_code => 'BD',
+              p_district => 'Dhaka',
+              p_total_area => '3.5000',
+              p_purchase_date => '2026-01-15',
+              p_purchase_price => '100000.0000',
+              p_currency_code => 'BDT',
+              p_current_estimated_value => '120000.0000',
+              p_owners => jsonb_build_array(
+                jsonb_build_object('owner_name', 'First Owner', 'ownership_percentage', '60.00'),
+                jsonb_build_object('owner_name', 'Second Owner', 'ownership_percentage', '40.00')
+              )
+            );
+            if v_property is null then
+              raise exception 'create_property returned no id';
+            end if;
+
+            select count(*), sum(ownership_percentage)
+              into v_owners, v_total
+              from public.property_ownerships
+              where property_id = v_property;
+            if v_owners <> 2 or v_total <> 100.00 then
+              raise exception 'Ownership roster is %, %', v_owners, v_total;
+            end if;
+
+            begin
+              perform public.add_property_owner(
+                p_property_id => v_property,
+                p_owners => jsonb_build_array(
+                  jsonb_build_object('owner_name', 'First Owner', 'ownership_percentage', '99.99')
+                )
+              );
+              raise exception 'Ownership shares totalling 99.99 were accepted';
+            exception
+              when sqlstate '23514' then null;
+            end;
+
+            select count(*), sum(ownership_percentage)
+              into v_owners, v_total
+              from public.property_ownerships
+              where property_id = v_property;
+            if v_owners <> 2 or v_total <> 100.00 then
+              raise exception 'Failed ownership change modified the roster';
+            end if;
+
+            -- Duplicate owner names are rejected by the database unique index
+            -- even though the form schema cannot compare names case-insensitively.
+            begin
+              perform public.create_property(
+                p_name => 'CI duplicate owners',
+                p_area_unit => 'Katha',
+                p_owners => jsonb_build_array(
+                  jsonb_build_object('owner_name', 'Same Name', 'ownership_percentage', '50.00'),
+                  jsonb_build_object('owner_name', ' same name ', 'ownership_percentage', '50.00')
+                )
+              );
+              raise exception 'Duplicate owner names were accepted';
+            exception
+              when unique_violation then null;
+            end;
+
+            v_valuation := public.record_property_valuation(
+              p_property_id => v_property,
+              p_estimated_value => '150000.0000',
+              p_currency_code => 'BDT',
+              p_valued_on => '2026-02-01',
+              p_source => 'CI estimate',
+              p_is_verified => false
+            );
+            select estimated_value, is_verified
+              into v_value, v_verified
+              from public.property_valuations
+              where id = v_valuation;
+            if v_value <> 150000 or v_verified then
+              raise exception 'Valuation stored as %, verified %', v_value, v_verified;
+            end if;
+
+            select current_estimated_value into v_current
+              from public.properties
+              where id = v_property;
+            if v_current <> 150000 then
+              raise exception 'Cached current_estimated_value is %', v_current;
+            end if;
+
+            if not exists (select 1 from public.net_worth_v) then
+              raise exception 'net_worth_v returned no row';
+            end if;
+            select net_amount_reporting into v_net
+              from public.net_worth_at(v_owner, current_date, 'EUR');
+            if v_net is null then
+              raise exception 'net_worth_at returned no row';
+            end if;
+
+            v_summary := public.get_dashboard_summary(
+              p_from_date => ' 2026-01-01 ',
+              p_to_date => '',
+              p_country_code => ' bd ',
+              p_currency_code => ''
+            );
+            if v_summary->'filters'->>'countryCode' <> 'BD'
+              or v_summary->'filters'->>'from' <> '2026-01-01'
+              or v_summary->'filters'->>'to' is not null then
+              raise exception 'Dashboard filters were not normalized: %', v_summary->'filters';
             end if;
           end
           $$;
