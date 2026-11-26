@@ -88,10 +88,14 @@ create table public.property_ownerships (
   ownership_type text,
   notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint property_ownerships_property_owner_unique
-    unique (property_id, lower(btrim(owner_name)))
+  updated_at timestamptz not null default now()
 );
+
+-- Expression uniqueness must live in an index: table constraints cannot use
+-- expressions. This keeps " Same Name " and "same name" from double-counting
+-- an owner while still allowing the raw display name to be preserved.
+create unique index property_ownerships_property_owner_unique
+  on public.property_ownerships (property_id, lower(btrim(owner_name)));
 
 create index property_ownerships_owner_idx
   on public.property_ownerships (owner_id, property_id);
