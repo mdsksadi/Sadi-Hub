@@ -55,6 +55,7 @@ export function PostForm({
     uploadInitial,
   );
   const [content, setContent] = useState(post?.content_md ?? "");
+  const [contentEn, setContentEn] = useState(post?.content_md_en ?? "");
   const coverRef = useRef<HTMLInputElement>(null);
   // An upload result wins over the stored path; the keys remount both inputs
   // when a new path arrives, so manual edits survive until the next upload.
@@ -104,6 +105,24 @@ export function PostForm({
               rows={3}
               maxLength={300}
               defaultValue={post?.excerpt ?? ""}
+            />
+          </div>
+          <div>
+            <Label htmlFor="titleEn">English title (optional)</Label>
+            <Input
+              id="titleEn"
+              name="titleEn"
+              maxLength={200}
+              defaultValue={post?.title_en ?? ""}
+            />
+          </div>
+          <div>
+            <Label htmlFor="excerptEn">English excerpt (optional)</Label>
+            <Input
+              id="excerptEn"
+              name="excerptEn"
+              maxLength={300}
+              defaultValue={post?.excerpt_en ?? ""}
             />
           </div>
           <div>
@@ -259,6 +278,45 @@ export function PostForm({
                   Start writing to see the rendered post.
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t pt-6">
+          <div>
+            <h2 className="text-lg font-semibold">
+              English translation (optional)
+            </h2>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Add these fields to show an English button on the published post.
+            </p>
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div>
+              <Label htmlFor="contentMdEn">English content (Markdown)</Label>
+              <Textarea
+                id="contentMdEn"
+                name="contentMdEn"
+                rows={12}
+                value={contentEn}
+                onChange={(event) => setContentEn(event.target.value)}
+                className="min-h-60 font-mono text-sm"
+                placeholder="## English heading&#10;&#10;Write with **Markdown**."
+              />
+            </div>
+            <div>
+              <p className="text-muted-foreground mb-1 text-sm font-medium">
+                English preview
+              </p>
+              <div className="min-h-60 rounded-md border p-4">
+                {contentEn.trim() ? (
+                  <Markdown source={contentEn} />
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    Add English content to see it here.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>

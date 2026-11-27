@@ -275,6 +275,9 @@ export type Database = {
             slug: string;
             excerpt: string | null;
             content_md: string;
+            title_en: string | null;
+            excerpt_en: string | null;
+            content_md_en: string | null;
             cover_path: string | null;
             category_id: string | null;
             status: "draft" | "scheduled" | "published" | "archived";

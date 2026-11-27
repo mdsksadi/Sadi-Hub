@@ -186,7 +186,8 @@ values
 on conflict (owner_id, slug) do nothing;
 
 insert into public.posts (
-  owner_id, author_id, title, slug, excerpt, content_md, category_id,
+  owner_id, author_id, title, slug, excerpt, content_md,
+  title_en, excerpt_en, content_md_en, category_id,
   status, published_at, scheduled_for, is_featured
 )
 values
@@ -195,6 +196,9 @@ values
     '00000000-0000-4000-8000-000000000001',
     'Building Sadi Hub',
     'building-sadi-hub',
+    'How this single-owner hub is put together.',
+    E'## Architecture\n\nA modular monolith on Next.js 16 and Supabase.\n\n```ts\nconst status = "published";\nconsole.log(status);\n```\n\nEverything private is protected by RLS.',
+    'Building Sadi Hub in English',
     'How this single-owner hub is put together.',
     E'## Architecture\n\nA modular monolith on Next.js 16 and Supabase.\n\n```ts\nconst status = "published";\nconsole.log(status);\n```\n\nEverything private is protected by RLS.',
     (select id from public.blog_categories where owner_id = '00000000-0000-4000-8000-000000000001' and slug = 'engineering'),
@@ -210,6 +214,7 @@ values
     'draft-unpublished-notes',
     'This post must never appear publicly.',
     'Draft body.',
+    null, null, null,
     null,
     'draft',
     null,
@@ -223,6 +228,7 @@ values
     'scheduled-next-week',
     'A future post.',
     'Scheduled body.',
+    null, null, null,
     null,
     'scheduled',
     null,

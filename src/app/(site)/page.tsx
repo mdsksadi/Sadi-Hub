@@ -1,23 +1,23 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getPublishedPosts } from "@/lib/data/blog";
+import { excerptFromMarkdown } from "@/lib/domain/blog";
 import {
   getPublicExperiences,
   getPublicProfile,
-  getPublicProjects,
   getPublicSkills,
 } from "@/lib/data/portfolio";
-import { publicObjectUrl, PUBLIC_BUCKET } from "@/lib/supabase/storage";
+import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [profile, projects, experiences, skills] = await Promise.all([
+  const [profile, latestPosts, experiences, skills] = await Promise.all([
     getPublicProfile(),
-    getPublicProjects(true),
+    getPublishedPosts({ pageSize: 3 }),
     getPublicExperiences(),
     getPublicSkills(),
   ]);
@@ -41,7 +41,7 @@ export default async function HomePage() {
           )}
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/about#projects">View projects</Link>
+              <Link href="/about#experience">View experiences</Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/contact">Get in touch</Link>
@@ -51,58 +51,45 @@ export default async function HomePage() {
         <ProfileAvatar profile={profile} />
       </section>
 
-      <section aria-labelledby="featured-projects">
+      <section aria-labelledby="latest-blog">
         <div className="mb-4 flex items-center justify-between">
-          <h2 id="featured-projects" className="text-2xl font-semibold">
-            Featured projects
+          <h2 id="latest-blog" className="text-2xl font-semibold">
+            Latest Blog
           </h2>
-          <Link
-            href="/about#projects"
-            className="text-primary text-sm hover:underline"
-          >
-            All projects →
+          <Link href="/blog" className="text-primary text-sm hover:underline">
+            All posts →
           </Link>
         </div>
-        {projects.length === 0 ? (
+        {latestPosts.posts.length === 0 ? (
           <Card>
             <CardContent className="text-muted-foreground py-8">
-              No published projects yet. Content appears here once the owner
+              No published posts yet. Content appears here once the owner
               publishes it.
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {projects.map((project) => (
-              <Card key={project.id} className="overflow-hidden">
-                {project.image_path && (
-                  <Image
-                    src={publicObjectUrl(PUBLIC_BUCKET, project.image_path)!}
-                    alt=""
-                    width={640}
-                    height={320}
-                    unoptimized
-                    className="h-44 w-full object-cover"
-                  />
-                )}
+          <div className="grid gap-4 md:grid-cols-3">
+            {latestPosts.posts.map((post) => (
+              <Card key={post.id}>
                 <CardHeader>
                   <CardTitle>
                     <Link
-                      href={`/projects/${project.slug}`}
+                      href={`/blog/${post.slug}`}
                       className="hover:underline"
                     >
-                      {project.title}
+                      {post.title}
                     </Link>
                   </CardTitle>
+                  {formatDate(post.published_at) && (
+                    <p className="text-muted-foreground text-xs">
+                      {formatDate(post.published_at)}
+                    </p>
+                  )}
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent>
                   <p className="text-muted-foreground text-sm">
-                    {project.short_description}
+                    {post.excerpt || excerptFromMarkdown(post.content_md)}
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {project.tech_stack.slice(0, 5).map((tech) => (
-                      <Badge key={tech}>{tech}</Badge>
-                    ))}
-                  </div>
                 </CardContent>
               </Card>
             ))}

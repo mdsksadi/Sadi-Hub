@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Markdown } from "@/components/markdown";
+import { LocalizedPost } from "@/components/blog/localized-post";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -77,54 +77,57 @@ export default async function BlogPostPage({ params }: Props) {
         ← All posts
       </Link>
 
-      <header className="space-y-3">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          {post.title}
-        </h1>
-        {description && (
-          <p className="text-muted-foreground text-lg">{description}</p>
-        )}
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          {published && (
-            <time dateTime={post.published_at ?? undefined}>{published}</time>
-          )}
-          <span aria-hidden="true">·</span>
-          <span>{formatReadingTime(post.reading_minutes)}</span>
-        </div>
-        {(post.blog_categories || tags.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {post.blog_categories && (
-              <Link
-                href={`/blog?category=${encodeURIComponent(post.blog_categories.slug)}`}
-              >
-                <Badge>{post.blog_categories.name}</Badge>
-              </Link>
+      <LocalizedPost
+        title={post.title}
+        excerpt={description}
+        contentMd={post.content_md}
+        titleEn={post.title_en}
+        excerptEn={
+          post.excerpt_en || excerptFromMarkdown(post.content_md_en) || ""
+        }
+        contentMdEn={post.content_md_en}
+      >
+        <div className="space-y-3">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            {published && (
+              <time dateTime={post.published_at ?? undefined}>{published}</time>
             )}
-            {tags.map((tag) => (
-              <Link
-                key={tag.id}
-                href={`/blog?tag=${encodeURIComponent(tag.slug)}`}
-              >
-                <Badge>{tag.name}</Badge>
-              </Link>
-            ))}
+            <span aria-hidden="true">·</span>
+            <span>{formatReadingTime(post.reading_minutes)}</span>
           </div>
+          {(post.blog_categories || tags.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {post.blog_categories && (
+                <Link
+                  href={`/blog?category=${encodeURIComponent(post.blog_categories.slug)}`}
+                >
+                  <Badge>{post.blog_categories.name}</Badge>
+                </Link>
+              )}
+              {tags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/blog?tag=${encodeURIComponent(tag.slug)}`}
+                >
+                  <Badge>{tag.name}</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {cover && (
+          <Image
+            src={cover}
+            alt={post.title}
+            width={1200}
+            height={600}
+            unoptimized
+            className="w-full rounded-xl border object-cover"
+            priority
+          />
         )}
-      </header>
-
-      {cover && (
-        <Image
-          src={cover}
-          alt={post.title}
-          width={1200}
-          height={600}
-          unoptimized
-          className="w-full rounded-xl border object-cover"
-          priority
-        />
-      )}
-
-      <Markdown source={post.content_md} className="max-w-3xl" />
+      </LocalizedPost>
 
       {related.length > 0 && (
         <section className="space-y-4 border-t pt-8">

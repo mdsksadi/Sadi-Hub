@@ -43,6 +43,30 @@ test.describe("blog", () => {
     expect(bodyText).toContain("modular monolith");
   });
 
+  test("article switches to its English translation", async ({ page }) => {
+    await page.goto("/blog/building-sadi-hub");
+    await page
+      .getByRole("button", { name: "Switch article to English" })
+      .click();
+
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Building Sadi Hub in English",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Switch article to Bangla" }),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Switch article to Bangla" })
+      .click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: PUBLISHED_TITLE }),
+    ).toBeVisible();
+  });
+
   test("RSS feed includes published posts and excludes drafts", async ({
     request,
   }) => {

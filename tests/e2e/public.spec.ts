@@ -25,6 +25,19 @@ test("main navigation is Home, Blog, About, Contact", async ({ page }) => {
   );
 });
 
+test("home focuses on experience and the latest blog", async ({ page }) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("link", { name: "View experiences" }),
+  ).toHaveAttribute("href", "/about#experience");
+  await expect(
+    page.getByRole("heading", { name: "Latest Blog" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Featured projects" }),
+  ).toHaveCount(0);
+});
+
 test("About is the portfolio hub", async ({ page }) => {
   await page.goto("/about");
   const sectionNav = page.getByRole("navigation", {
