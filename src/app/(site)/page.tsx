@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,8 +21,6 @@ export default async function HomePage() {
     getPublicExperiences(),
     getPublicSkills(),
   ]);
-  const avatar = publicObjectUrl(PUBLIC_BUCKET, profile?.avatar_path ?? null);
-
   return (
     <div className="space-y-14">
       <section className="grid gap-8 md:grid-cols-[1fr_auto] md:items-center">
@@ -49,16 +48,7 @@ export default async function HomePage() {
             </Button>
           </div>
         </div>
-        {avatar && (
-          <Image
-            src={avatar}
-            alt={`${profile?.display_name ?? "Sadi"}'s avatar`}
-            width={160}
-            height={160}
-            unoptimized
-            className="ring-border h-40 w-40 rounded-full object-cover ring-2"
-          />
-        )}
+        <ProfileAvatar profile={profile} />
       </section>
 
       <section aria-labelledby="featured-projects">

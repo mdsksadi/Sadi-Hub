@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import {
   getPublicTags,
   getPublishedPosts,
 } from "@/lib/data/blog";
+import { getPublicProfile } from "@/lib/data/portfolio";
 import { excerptFromMarkdown, formatReadingTime } from "@/lib/domain/blog";
 import { PUBLIC_BUCKET, publicObjectUrl } from "@/lib/supabase/storage";
 import { formatDate } from "@/lib/utils";
@@ -82,18 +84,23 @@ export default async function BlogPage({
   const page =
     Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
-  const [{ posts, total, pageSize, page: resultPage }, categories, allTags] =
-    await Promise.all([
-      getPublishedPosts({
-        q: filters.q || undefined,
-        category: filters.category || undefined,
-        tag: filters.tag || undefined,
-        page,
-        pageSize: PAGE_SIZE,
-      }),
-      getPublicCategories(),
-      getPublicTags(),
-    ]);
+  const [
+    profile,
+    { posts, total, pageSize, page: resultPage },
+    categories,
+    allTags,
+  ] = await Promise.all([
+    getPublicProfile(),
+    getPublishedPosts({
+      q: filters.q || undefined,
+      category: filters.category || undefined,
+      tag: filters.tag || undefined,
+      page,
+      pageSize: PAGE_SIZE,
+    }),
+    getPublicCategories(),
+    getPublicTags(),
+  ]);
 
   const tagLinks = await getPublicTagLinks(posts.map((post) => post.id));
   const tagsByPost = tagsForPosts(tagLinks, allTags);
@@ -104,11 +111,14 @@ export default async function BlogPage({
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">Blog</h1>
-        <p className="text-muted-foreground mt-2">
-          Notes on building, learning and everything in between.
-        </p>
+      <header className="flex flex-row-reverse items-start justify-between gap-6 sm:items-center">
+        <ProfileAvatar profile={profile} className="shrink-0" />
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight">Blog</h1>
+          <p className="text-muted-foreground mt-2">
+            Notes on building, learning and everything in between.
+          </p>
+        </div>
       </header>
 
       <form

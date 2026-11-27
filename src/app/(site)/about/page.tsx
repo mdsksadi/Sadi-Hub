@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import {
   CertificationList,
   EducationList,
@@ -60,12 +61,15 @@ export default async function AboutPage() {
 
   return (
     <div className="space-y-12">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">About</h1>
-        <p className="text-muted-foreground mt-2">
-          My portfolio at a glance: experience, education, skills, projects and
-          resume.
-        </p>
+      <header className="flex flex-row-reverse items-start justify-between gap-6 sm:items-center">
+        <ProfileAvatar profile={profile} className="shrink-0" />
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight">About</h1>
+          <p className="text-muted-foreground mt-2">
+            My portfolio at a glance: experience, education, skills, projects
+            and resume.
+          </p>
+        </div>
       </header>
 
       <ProfileCard profile={profile} />
